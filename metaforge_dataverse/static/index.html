@@ -255,12 +255,20 @@
     padding:3px 10px;border:1px solid var(--border2);white-space:nowrap;color:var(--muted)}
   .fbadge.ok{color:var(--green);border-color:var(--green-bd);background:var(--green-tint)}
   .fbadge.bad{color:var(--red);border-color:var(--red-bd);background:var(--red-tint)}
-  /* step 3 batch list */
-  .s3frow{display:flex;gap:12px;align-items:center;padding:7px 0;border-top:1px solid var(--hairline)}
+  /* step 3 batch list (per-file draft/publish) */
+  .s3frow{display:flex;gap:14px;align-items:center;justify-content:space-between;
+    padding:10px 0;border-top:1px solid var(--hairline)}
   .s3frow:first-child{border-top:0}
-  .s3fn{flex:0 0 40%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    font-family:ui-monospace,SFMono-Regular,monospace;font-size:12.5px;color:var(--muted)}
-  .s3ft{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+  .s3fleft{min-width:0;flex:1}
+  .s3fn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-family:ui-monospace,SFMono-Regular,monospace;font-size:12px;color:var(--muted)}
+  .s3ft{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);margin-top:1px}
+  .s3ftoggle{display:flex;align-items:center;gap:9px;flex:none}
+  .s3side{font-size:12px;color:var(--muted);white-space:nowrap}
+  .s3side.cur{color:var(--text);font-weight:600}
+  .s3ftoggle .sw{width:46px;height:25px}
+  .s3ftoggle .sw .kn{width:19px;height:19px}
+  .s3ftoggle .sw.on .kn{left:23px}
   /* step 4 result rows */
   .reslist{display:flex;flex-direction:column;gap:8px;margin-top:12px}
   .resrow{border:1px solid var(--border);border-radius:12px;background:var(--panel2);overflow:hidden}
@@ -357,23 +365,15 @@
   <!-- STEP 3 -->
   <section class="panel hidden" id="p3">
     <h2>Publish &amp; submit</h2>
-    <div class="sub">Review the batch, choose draft or publish, then submit. Each file is imported
-      independently — if one fails, the others still go through.</div>
+    <div class="sub">Choose <b>Draft</b> or <b>Publish</b> for each file, then submit. Each file is
+      imported independently with its own setting — if one fails, the others still go through.</div>
     <div class="pv">
       <div><div class="k">Collection</div><div class="v mono" id="s3coll"></div></div>
       <div><div class="k">Ready to submit</div><div class="v" id="s3count"></div></div>
     </div>
     <div id="s3skip" class="small muted hidden" style="margin-top:6px"></div>
-    <div id="s3files" style="margin-top:10px"></div>
-
-    <label class="fld">Publication</label>
-    <div class="row" style="justify-content:space-between">
-      <div class="swlbl"><b id="pubTitle">Save as draft</b><br>
-        <span id="pubDesc">The datasets are created but not published. You can publish later.</span></div>
-      <div class="toggle"><span class="small muted">Draft</span>
-        <div class="sw" id="pubSw"><div class="kn"></div></div>
-        <span class="small muted">Publish</span></div>
-    </div>
+    <label class="fld">Files (draft / publish per file)</label>
+    <div id="s3files"></div>
 
     <div id="s3err" style="margin-top:12px"></div>
     <div class="actions">
@@ -451,11 +451,12 @@ function progressDonut(pct,size,stroke){
 // Auth is via sign-in now; no manual token/server/root overrides in the UI.
 // Clear any values saved by an older build so login always governs identity.
 ['dv_token','dv_server','dv_root'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
-// Multi-file batch: one entry per uploaded workbook, each imported independently.
-// entry = { id, file, name, mapping:{}, status:'validating'|'valid'|'invalid',
+// Multi-file batch: one entry per uploaded workbook, each imported independently
+// with its own draft/publish setting.
+// entry = { id, file, name, mapping:{}, publish:false, status:'validating'|'valid'|'invalid',
 //           dryStatus, dryBody, submitStatus:'idle'|'submitting'|'success'|'duplicate'|'error',
 //           resultHttp, resultBody, _open, _ropen }
-const state = { step:1, parent:'', publish:false, files:[],
+const state = { step:1, parent:'', files:[],
   token:'', server:'', root:'' };
 
 /* ---------- theme ---------- */
@@ -654,7 +655,7 @@ fileInput.onchange=e=>{ addFiles(e.target.files); fileInput.value=''; };
 function addFiles(fileList){
   const arr=[...(fileList||[])].filter(f=>/\.xlsx$/i.test(f.name));
   arr.forEach(f=>{
-    const entry={ id:++_uid, file:f, name:f.name, mapping:{}, status:'validating',
+    const entry={ id:++_uid, file:f, name:f.name, mapping:{}, publish:false, status:'validating',
       dryStatus:0, dryBody:null, submitStatus:'idle', resultHttp:0, resultBody:null,
       _open:false, _ropen:false };
     state.files.push(entry);
@@ -879,14 +880,13 @@ function previewCard(pv, body){
 $('#p2back').onclick=()=>setStep(1);
 $('#p2next').onclick=()=>{ prepStep3(); setStep(3); };
 
-/* ---------- step 3: batch submit ---------- */
+/* ---------- step 3: batch submit (draft/publish PER FILE) ---------- */
 function prepStep3(){
   $('#s3err').innerHTML='';
   const valid=state.files.filter(f=>f.status==='valid');
   const invalid=state.files.filter(f=>f.status!=='valid');
   $('#s3coll').textContent=state.parent;
-  $('#s3count').textContent = valid.length+' dataset'+(valid.length===1?'':'s')+' will be '
-    +(state.publish?'published':'created');
+  updateS3Count();
   const sk=$('#s3skip');
   if(invalid.length){ sk.classList.remove('hidden');
     sk.textContent = invalid.length+' file'+(invalid.length===1?'':'s')+' had errors and will be skipped.'; }
@@ -895,23 +895,39 @@ function prepStep3(){
   valid.forEach(f=>{
     const cit=(f.dryBody&&f.dryBody.preview&&f.dryBody.preview.citation)||{};
     const rowd=el('div','s3frow');
-    rowd.appendChild(el('span','s3fn', f.name));
-    rowd.appendChild(el('span','s3ft', cit.title||'(untitled)'));
+    const left=el('div','s3fleft');
+    left.appendChild(el('div','s3fn', f.name));
+    left.appendChild(el('div','s3ft', cit.title||'(untitled)'));
+    rowd.appendChild(left);
+    // per-file draft/publish toggle
+    const tog=el('div','s3ftoggle');
+    const draftL=el('span','s3side'+(f.publish?'':' cur'),'Draft');
+    const sw=el('div','sw'+(f.publish?' on':'')); sw.appendChild(el('div','kn'));
+    const pubL=el('span','s3side'+(f.publish?' cur':''),'Publish');
+    sw.title='Draft or publish this file';
+    sw.onclick=()=>{
+      f.publish=!f.publish;
+      sw.classList.toggle('on',f.publish);
+      draftL.classList.toggle('cur',!f.publish);
+      pubL.classList.toggle('cur',f.publish);
+      updateS3Count();
+    };
+    tog.appendChild(draftL); tog.appendChild(sw); tog.appendChild(pubL);
+    rowd.appendChild(tog);
     listWrap.appendChild(rowd);
   });
 }
-const pubSw=$('#pubSw');
-pubSw.onclick=()=>{
-  state.publish=!state.publish; pubSw.classList.toggle('on',state.publish);
-  $('#pubTitle').textContent = state.publish?'Publish (version 1.0)':'Save as draft';
-  $('#pubDesc').textContent = state.publish
-    ? 'Each dataset is published immediately with the default license.'
-    : 'The datasets are created but not published. You can publish later.';
-  if(state.step===3) prepStep3();
-};
+function updateS3Count(){
+  const valid=state.files.filter(f=>f.status==='valid');
+  const pub=valid.filter(f=>f.publish).length, dr=valid.length-pub;
+  $('#s3count').textContent = valid.length+' ready — '+dr+' draft, '+pub+' publish';
+}
 $('#p3back').onclick=()=>setStep(2);
-// publishing is irreversible -> confirm once for the whole batch; draft submits directly
-$('#submitBtn').onclick=()=>{ if(state.publish) $('#pubMask').classList.add('show'); else submitAll(); };
+// publishing is irreversible -> confirm if ANY file is set to Publish; else submit directly
+$('#submitBtn').onclick=()=>{
+  if(state.files.some(f=>f.status==='valid' && f.publish)) $('#pubMask').classList.add('show');
+  else submitAll();
+};
 $('#pubCancel').onclick=()=>$('#pubMask').classList.remove('show');
 $('#pubConfirm').onclick=()=>{ $('#pubMask').classList.remove('show'); submitAll(); };
 
@@ -931,7 +947,7 @@ async function submitFile(entry, force){
   entry.submitStatus='submitting'; renderResults();
   const fd=new FormData();
   fd.append('file',entry.file); fd.append('parent',state.parent);
-  fd.append('dry_run','false'); fd.append('publish', state.publish?'true':'false');
+  fd.append('dry_run','false'); fd.append('publish', entry.publish?'true':'false');   // per-file
   fd.append('force_update', force?'true':'false');
   if(Object.keys(entry.mapping).length) fd.append('mapping', JSON.stringify(entry.mapping));
   const {status,body}=await api('/dataverse/import',{method:'POST',body:fd});
@@ -1049,11 +1065,9 @@ function resultGrid(body){
 $('#again').onclick=resetAll;
 
 function resetAll(){
-  state.files=[]; state.publish=false; state.parent='';
-  fileInput.value=''; pubSw.classList.remove('on');
-  $('#pubTitle').textContent='Save as draft';
-  $('#pubDesc').textContent='The datasets are created but not published. You can publish later.';
-  $('#resultsList').innerHTML='';
+  state.files=[]; state.parent='';
+  fileInput.value='';
+  $('#resultsList').innerHTML=''; $('#s3files').innerHTML='';
   setStep(1); initStep1();
 }
 
