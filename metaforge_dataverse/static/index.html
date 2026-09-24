@@ -238,6 +238,44 @@
   .matchstat.auto{color:var(--green);border-color:var(--green-bd);background:var(--green-tint)}
   .matchstat.manual{color:var(--blue);border-color:var(--blue-bd);background:var(--blue-tint)}
   .matchstat.warn{color:var(--orange);border-color:var(--orange-bd);background:var(--orange-tint)}
+  /* multi-file: per-file collapsible cards (step 2) */
+  #filesList{margin-top:14px}
+  .filecard{border:1px solid var(--border);border-radius:12px;background:var(--panel2);margin-top:10px;overflow:hidden}
+  .fchead{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;user-select:none}
+  .fchead:hover{background:var(--chip)}
+  .fchead .chev{color:var(--muted);font-size:12px;transition:transform .15s;flex:none}
+  .filecard.open .fchead .chev{transform:rotate(90deg)}
+  .fcname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  .fcx{border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:14px;flex:none;
+    padding:2px 7px;border-radius:6px;line-height:1}
+  .fcx:hover{color:var(--bad);background:var(--red-tint)}
+  .fcbody{display:none;padding:2px 14px 14px} .filecard.open .fcbody{display:block}
+  .fbadge{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;border-radius:999px;
+    padding:3px 10px;border:1px solid var(--border2);white-space:nowrap;color:var(--muted)}
+  .fbadge.ok{color:var(--green);border-color:var(--green-bd);background:var(--green-tint)}
+  .fbadge.bad{color:var(--red);border-color:var(--red-bd);background:var(--red-tint)}
+  /* step 3 batch list */
+  .s3frow{display:flex;gap:12px;align-items:center;padding:7px 0;border-top:1px solid var(--hairline)}
+  .s3frow:first-child{border-top:0}
+  .s3fn{flex:0 0 40%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-family:ui-monospace,SFMono-Regular,monospace;font-size:12.5px;color:var(--muted)}
+  .s3ft{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+  /* step 4 result rows */
+  .reslist{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  .resrow{border:1px solid var(--border);border-radius:12px;background:var(--panel2);overflow:hidden}
+  .resrowh{display:flex;align-items:center;gap:12px;padding:11px 14px;cursor:pointer;user-select:none}
+  .resrowh:hover{background:var(--chip)}
+  .resicon{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex:none;font-size:15px;font-weight:700}
+  .resicon.ok{background:var(--good-bg);color:var(--good);border:1px solid var(--green-bd)}
+  .resicon.bad{background:var(--bad-bg);color:var(--bad);border:1px solid var(--red-bd)}
+  .resicon.busy{background:var(--chip);color:var(--muted);border:1px solid var(--border2)}
+  .resname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-family:ui-monospace,SFMono-Regular,monospace;font-size:13px;color:var(--text)}
+  .resshort{color:var(--muted);font-size:12.5px;white-space:nowrap}
+  .reschev{color:var(--muted);font-size:12px;flex:none;transition:transform .15s}
+  .resrow.open .reschev{transform:rotate(90deg)}
+  .resdetail{display:none;padding:2px 14px 14px} .resrow.open .resdetail{display:block}
 </style>
 </head>
 <body>
@@ -256,10 +294,10 @@
   <div class="hero">
     <div class="hero-badge">◈</div>
     <div>
-      <h1 class="serif">Import a dataset from Excel</h1>
-      <p>Choose a collection, drop an Excel workbook, and preview exactly what will be created —
-         then save it as a draft or publish. Existing datasets are detected first, so nothing is
-         overwritten by accident.</p>
+      <h1 class="serif">Import datasets from Excel</h1>
+      <p>Choose a collection, drop one or more Excel workbooks, and preview exactly what will be
+         created — then save as drafts or publish. Each file is imported independently, so one
+         failure never stops the rest.</p>
     </div>
   </div>
 
@@ -299,22 +337,16 @@
   <!-- STEP 2 -->
   <section class="panel hidden" id="p2">
     <h2>Upload &amp; preview</h2>
-    <div class="sub">Target: <code class="k" id="p2coll"></code>. The file is validated on upload
-      (dry run) and previewed below — nothing is created yet.</div>
+    <div class="sub">Target: <code class="k" id="p2coll"></code>. Drop one or more workbooks — each is
+      validated independently and previewed in its own bar below. Nothing is created yet.</div>
     <div id="drop" class="drop">
       <div class="ic">⬆</div>
-      <div><b>Drop an Excel workbook (.xlsx) here</b>, or click to browse</div>
-      <div class="hint">Only the file is read — no data is written during preview.</div>
-      <input type="file" id="fileInput" accept=".xlsx" class="hidden">
-    </div>
-    <div id="fileRow" class="row hidden" style="margin-top:12px">
-      <span class="filechip" id="fileChip"></span>
-      <button class="btn ghost" id="reupload">Replace file</button>
+      <div><b>Drop Excel workbooks (.xlsx) here</b>, or click to browse</div>
+      <div class="hint">You can select multiple files. Each is read only — no data is written during preview.</div>
+      <input type="file" id="fileInput" accept=".xlsx" multiple class="hidden">
     </div>
 
-    <div id="matchOut" class="hidden" style="margin-top:16px"></div>
-    <div id="dryLoading" class="hidden" style="margin-top:16px"><span class="spin"></span> Validating…</div>
-    <div id="dryOut" class="hidden" style="margin-top:16px"></div>
+    <div id="filesList" class="hidden"></div>
 
     <div class="actions">
       <button class="btn ghost" id="p2back">← Back</button>
@@ -325,20 +357,19 @@
   <!-- STEP 3 -->
   <section class="panel hidden" id="p3">
     <h2>Publish &amp; submit</h2>
-    <div class="sub">Review, choose draft or publish, then submit.</div>
+    <div class="sub">Review the batch, choose draft or publish, then submit. Each file is imported
+      independently — if one fails, the others still go through.</div>
     <div class="pv">
       <div><div class="k">Collection</div><div class="v mono" id="s3coll"></div></div>
-      <div><div class="k">Dataset title</div><div class="v" id="s3title"></div></div>
-      <div><div class="k">Depositor (you)</div><div class="v" id="s3dep"></div></div>
-      <div><div class="k">Owner (admin)</div><div class="v mono" id="s3owner"></div></div>
+      <div><div class="k">Ready to submit</div><div class="v" id="s3count"></div></div>
     </div>
-    <div class="banner good" style="margin-top:14px"><span class="bi">✓</span>
-      <div>Validation passed — ready to submit.</div></div>
+    <div id="s3skip" class="small muted hidden" style="margin-top:6px"></div>
+    <div id="s3files" style="margin-top:10px"></div>
 
     <label class="fld">Publication</label>
     <div class="row" style="justify-content:space-between">
       <div class="swlbl"><b id="pubTitle">Save as draft</b><br>
-        <span id="pubDesc">The dataset is created but not published. You can publish later.</span></div>
+        <span id="pubDesc">The datasets are created but not published. You can publish later.</span></div>
       <div class="toggle"><span class="small muted">Draft</span>
         <div class="sw" id="pubSw"><div class="kn"></div></div>
         <span class="small muted">Publish</span></div>
@@ -347,7 +378,7 @@
     <div id="s3err" style="margin-top:12px"></div>
     <div class="actions">
       <button class="btn ghost" id="p3back">← Back</button>
-      <button class="btn primary" id="submitBtn">Submit</button>
+      <button class="btn primary" id="submitBtn">Submit all</button>
     </div>
   </section>
 
@@ -356,19 +387,12 @@
     <div class="center">
       <div class="big-ok" id="okIcon">✓</div>
       <h2 id="resTitle">Done</h2>
-      <div class="sub" id="resSub" style="margin-top:6px"></div>
+      <div class="sub" id="resSum" style="margin-top:6px"></div>
     </div>
-    <div class="pv" id="resGrid" style="margin-top:8px"></div>
-    <div id="urlWrap" class="hidden">
-      <label class="fld">Dataset URL</label>
-      <div class="urlbox">
-        <input type="text" id="resUrl" readonly>
-        <button class="btn" id="copyUrl">Copy</button>
-        <a class="btn primary" id="openUrl" target="_blank" rel="noopener">Open ↗</a>
-      </div>
-    </div>
+    <div class="small muted" style="margin-top:8px">One row per file — click a row (or its ✓ / ✕) to see its full result.</div>
+    <div id="resultsList" class="reslist"></div>
     <div class="actions"><span></span>
-      <button class="btn primary" id="again">Import another →</button></div>
+      <button class="btn primary" id="again">Import more →</button></div>
   </section>
 </div>
 
@@ -376,28 +400,14 @@
 <!-- Publish confirmation modal -->
 <div class="mask" id="pubMask">
   <div class="modal">
-    <h3>Publish this dataset?</h3>
+    <h3>Publish these datasets?</h3>
     <div class="banner warn" style="margin:8px 0"><span class="bi">!</span>
-      <div>You are about to <b>publish</b> the dataset. Publishing is permanent — a published
-        version <b>cannot be un-published or reverted</b>. To keep it editable, cancel and choose
-        <b>Draft</b> instead.</div></div>
+      <div>You are about to <b>publish</b> every valid file in this batch. Publishing is permanent — a
+        published version <b>cannot be un-published or reverted</b>. To keep them editable, cancel and
+        choose <b>Draft</b> instead.</div></div>
     <div class="actions">
       <button class="btn ghost" id="pubCancel">Cancel</button>
       <button class="btn primary" id="pubConfirm">Continue &amp; publish</button>
-    </div>
-  </div>
-</div>
-
-<!-- Duplicate modal -->
-<div class="mask" id="dupMask">
-  <div class="modal">
-    <h3>A matching dataset already exists</h3>
-    <div class="banner warn" id="dupMsg" style="margin:6px 0 4px"></div>
-    <div class="small muted">Cancel to stop, or Force update to overwrite the existing dataset’s
-      draft with this file.</div>
-    <div class="actions">
-      <button class="btn danger" id="dupCancel">Cancel</button>
-      <button class="btn primary" id="dupForce">Force update</button>
     </div>
   </div>
 </div>
@@ -441,8 +451,11 @@ function progressDonut(pct,size,stroke){
 // Auth is via sign-in now; no manual token/server/root overrides in the UI.
 // Clear any values saved by an older build so login always governs identity.
 ['dv_token','dv_server','dv_root'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
-const state = { step:1, parent:'', file:null, dry:null, publish:false,
-  mapping:{},              // sheet title -> chosen block template ('' = skip)
+// Multi-file batch: one entry per uploaded workbook, each imported independently.
+// entry = { id, file, name, mapping:{}, status:'validating'|'valid'|'invalid',
+//           dryStatus, dryBody, submitStatus:'idle'|'submitting'|'success'|'duplicate'|'error',
+//           resultHttp, resultBody, _open, _ropen }
+const state = { step:1, parent:'', publish:false, files:[],
   token:'', server:'', root:'' };
 
 /* ---------- theme ---------- */
@@ -458,8 +471,8 @@ $('#btnTheme').onclick=()=>{localStorage.setItem('dv_theme',
 function canGoStep(n){
   if(n===1) return true;
   if(n===2) return !!state.parent;
-  if(n===3) return !!state.dry;
-  if(n===4) return !!state.lastResult;
+  if(n===3) return state.files.some(f=>f.status==='valid');
+  if(n===4) return state.files.some(f=>f.submitStatus && f.submitStatus!=='idle');
   return false;
 }
 function setStep(n){
@@ -627,63 +640,103 @@ $('#manualToggle').onclick=e=>{e.preventDefault();$('#manualWrap').classList.tog
 $('#manualAlias').oninput=e=>{state.parent=e.target.value.trim(); $('#p1next').disabled=!state.parent;};
 $('#p1next').onclick=()=>{ $('#p2coll').textContent=state.parent; goToUpload(); };
 
-/* ---------- step 2: upload + dry run ---------- */
-function goToUpload(){
-  setStep(2);
-  $('#dryOut').classList.add('hidden'); $('#p2next').disabled=true;
-  if(state.file){ showFile(); }
-}
+/* ---------- step 2: upload + per-file dry run ---------- */
+let _uid = 0;
+function goToUpload(){ setStep(2); renderFilesList(); }
+
 const drop=$('#drop'), fileInput=$('#fileInput');
 drop.onclick=()=>fileInput.click();
 ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
-drop.addEventListener('drop',e=>{ if(e.dataTransfer.files[0]) pickFile(e.dataTransfer.files[0]); });
-fileInput.onchange=e=>{ if(e.target.files[0]) pickFile(e.target.files[0]); };
-$('#reupload').onclick=()=>fileInput.click();
-function showFile(){
-  $('#fileChip').textContent='📄 '+state.file.name;
-  $('#fileRow').classList.remove('hidden');
-}
-function pickFile(f){ state.file=f; state.mapping={}; $('#matchOut').classList.add('hidden'); showFile(); runDry(); }
+drop.addEventListener('drop',e=>{ addFiles(e.dataTransfer.files); });
+fileInput.onchange=e=>{ addFiles(e.target.files); fileInput.value=''; };
 
-async function runDry(){
-  $('#dryOut').classList.add('hidden'); $('#p2next').disabled=true;
-  $('#dryLoading').classList.remove('hidden');
+function addFiles(fileList){
+  const arr=[...(fileList||[])].filter(f=>/\.xlsx$/i.test(f.name));
+  arr.forEach(f=>{
+    const entry={ id:++_uid, file:f, name:f.name, mapping:{}, status:'validating',
+      dryStatus:0, dryBody:null, submitStatus:'idle', resultHttp:0, resultBody:null,
+      _open:false, _ropen:false };
+    state.files.push(entry);
+    runDryFor(entry);
+  });
+  renderFilesList();
+}
+function removeFile(id){ state.files=state.files.filter(f=>f.id!==id); renderFilesList(); }
+
+async function runDryFor(entry){
+  entry.status='validating'; renderFilesList();
   const fd=new FormData();
-  fd.append('file',state.file); fd.append('parent',state.parent); fd.append('dry_run','true');
-  if(state.server) fd.append('server',state.server);
-  if(Object.keys(state.mapping).length) fd.append('mapping', JSON.stringify(state.mapping));
-  const {ok,status,body}=await api('/dataverse/import',{method:'POST',body:fd});
-  $('#dryLoading').classList.add('hidden');
-  if(body && body.matching) renderMatching(body.matching);   // shown on success AND on 422
-  state.dry = (status===200 && body && body.status==='validated') ? body : null;
-  renderDry(status, body);
-  $('#p2next').disabled = !state.dry;
+  fd.append('file',entry.file); fd.append('parent',state.parent); fd.append('dry_run','true');
+  if(Object.keys(entry.mapping).length) fd.append('mapping', JSON.stringify(entry.mapping));
+  const {status,body}=await api('/dataverse/import',{method:'POST',body:fd});
+  entry.dryStatus=status; entry.dryBody=body;
+  entry.status = (status===200 && body && body.status==='validated') ? 'valid' : 'invalid';
+  if(entry.status==='invalid') entry._open=true;    // auto-expand to surface the problem
+  renderFilesList();
 }
 
-function renderDry(status, body){
-  const out=$('#dryOut'); out.innerHTML=''; out.classList.remove('hidden');
+function renderFilesList(){
+  const list=$('#filesList'); if(!list) return;
+  list.innerHTML='';
+  list.classList.toggle('hidden', !state.files.length);
+  state.files.forEach(e=>list.appendChild(fileCard(e)));
+  updateP2Next();
+}
+function updateP2Next(){
+  const anyBusy=state.files.some(f=>f.status==='validating');
+  const nValid=state.files.filter(f=>f.status==='valid').length;
+  const btn=$('#p2next');
+  btn.disabled = anyBusy || nValid===0;
+  btn.textContent = nValid>1 ? ('Continue ('+nValid+' ready) →') : 'Continue →';
+}
+function statusBadge(entry){
+  const b=el('span','fbadge');
+  if(entry.status==='validating'){ b.appendChild(el('span','spin')); b.appendChild(document.createTextNode(' Validating…')); }
+  else if(entry.status==='valid'){ b.classList.add('ok'); b.textContent='✓ Valid'; }
+  else { b.classList.add('bad'); b.textContent='✕ '+((entry.dryBody&&entry.dryBody.stage)?('error: '+entry.dryBody.stage):'Not ready'); }
+  return b;
+}
+function fileCard(entry){
+  const box=el('div','filecard'+(entry._open?' open':''));
+  const head=el('div','fchead');
+  head.appendChild(el('span','chev','▸'));
+  head.appendChild(el('div','fcname', entry.name));
+  head.appendChild(statusBadge(entry));
+  const rm=el('button','fcx'); rm.textContent='✕'; rm.title='Remove file';
+  rm.onclick=(e)=>{ e.stopPropagation(); removeFile(entry.id); };
+  head.appendChild(rm);
+  head.onclick=()=>{ entry._open=!entry._open; box.classList.toggle('open'); };
+  box.appendChild(head);
+  const body=el('div','fcbody');
+  if(entry.status==='validating'){ body.appendChild(el('div','small muted','Validating…')); }
+  else {
+    if(entry.dryBody && entry.dryBody.matching){ const mc=fileMatching(entry, entry.dryBody.matching); if(mc) body.appendChild(mc); }
+    body.appendChild(fileDryResult(entry));
+  }
+  box.appendChild(body);
+  return box;
+}
+function fileDryResult(entry){
+  const out=el('div'); out.style.marginTop='12px';
+  const status=entry.dryStatus, body=entry.dryBody;
   if(isServerDown(status)){
     out.appendChild(banner('bad','!',serverDownMsg(status)));
-    const b=el('button','btn ghost','↻ Retry'); b.style.marginTop='10px'; b.onclick=runDry; out.appendChild(b);
-    return;
+    const b=el('button','btn ghost','↻ Retry'); b.style.marginTop='10px'; b.onclick=()=>runDryFor(entry); out.appendChild(b);
+    return out;
   }
-  if(!body){ out.appendChild(banner('bad','!','No response from the server. Try again.')); return; }
-
+  if(!body){ out.appendChild(banner('bad','!','No response from the server. Try again.')); return out; }
   if(status!==200 || body.status!=='validated'){
-    const b=banner('bad','✕','This file is not ready to import — fix the issues below, adjust the sheet matching above, or replace the file.');
-    out.appendChild(b);
+    out.appendChild(banner('bad','✕','Not ready to import — fix the issues below, adjust the sheet matching above, or remove this file.'));
     const errs = body.errors || (body.detail?[body.detail]:[]) || [];
     if(body.stage) out.appendChild(el('div','small muted','Stage: '+body.stage));
     if(errs.length){ const ul=el('ul','errs'); errs.forEach(e=>ul.appendChild(el('li',null,e))); out.appendChild(ul); }
-    if(body.account){ out.appendChild(el('div','small muted',
-      'Account: workbook email '+esc(body.account.workbookEmail)+' vs registered '+esc(body.account.registeredEmail))); }
-    // still show a preview if present
     if(body.preview) out.appendChild(previewCard(body.preview, body));
-    return;
+    return out;
   }
   out.appendChild(banner('good','✓','Valid — '+esc(body.validationMessage||'ready to submit.')));
   out.appendChild(previewCard(body.preview, body));
+  return out;
 }
 
 function banner(kind, icon, text){
@@ -694,17 +747,14 @@ function kv(k,v){ const w=el('div'); w.appendChild(el('div','k',k)); const d=el(
 function chips(arr){ const w=el('div'); (arr||[]).forEach(x=>w.appendChild(el('span','chip',x)));
   if(!arr||!arr.length) w.appendChild(el('span','empty','none')); return w; }
 
-/* ---------- sheet <-> metadata-block matcher (step 2) ---------- */
-function renderMatching(m){
-  const box=$('#matchOut');
-  if(!m || !Array.isArray(m.sheets) || !m.sheets.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
-  box.innerHTML=''; box.classList.remove('hidden');
+/* ---------- per-file sheet <-> metadata-block matcher (step 2) ---------- */
+function fileMatching(entry, m){
+  if(!m || !Array.isArray(m.sheets) || !m.sheets.length) return null;
   const opts = m.available||[];
   const card=el('div','matchcard');
   card.appendChild(el('h3','','Match sheets to metadata blocks'));
-  card.appendChild(el('div','sub','Each Excel sheet on the left is imported into the metadata block you '
-    +'pick on the right, in '+esc(state.parent)+'. Names need not be identical — fix any wrong match, '
-    +'or choose “don’t import” to skip a sheet.'));
+  card.appendChild(el('div','sub','Each Excel sheet is imported into the metadata block you pick, in '
+    +esc(state.parent)+'. Names need not be identical — fix any wrong match, or choose “don’t import” to skip a sheet.'));
   m.sheets.forEach(s=>{
     const row=el('div','matchrow');
     const left=el('div','matchsheet');
@@ -723,15 +773,15 @@ function renderMatching(m){
     row.appendChild(sel);
 
     const stat=el('span','matchstat');
-    const overridden = Object.prototype.hasOwnProperty.call(state.mapping, s.sheet);
+    const overridden = Object.prototype.hasOwnProperty.call(entry.mapping, s.sheet);
     if(!sel.value){ stat.textContent = overridden?'skipped':'not matched'; stat.classList.add(overridden?'':'warn'); }
     else { stat.textContent = overridden?'manual':'auto'; stat.classList.add(overridden?'manual':'auto'); }
     row.appendChild(stat);
 
-    sel.onchange=()=>{ state.mapping[s.sheet]=sel.value; runDry(); };
+    sel.onchange=()=>{ entry.mapping[s.sheet]=sel.value; runDryFor(entry); };
     card.appendChild(row);
   });
-  box.appendChild(card);
+  return card;
 }
 
 function previewCard(pv, body){
@@ -829,110 +879,181 @@ function previewCard(pv, body){
 $('#p2back').onclick=()=>setStep(1);
 $('#p2next').onclick=()=>{ prepStep3(); setStep(3); };
 
-/* ---------- step 3: submit ---------- */
+/* ---------- step 3: batch submit ---------- */
 function prepStep3(){
   $('#s3err').innerHTML='';
-  const c=(state.dry&&state.dry.preview&&state.dry.preview.citation)||{};
+  const valid=state.files.filter(f=>f.status==='valid');
+  const invalid=state.files.filter(f=>f.status!=='valid');
   $('#s3coll').textContent=state.parent;
-  $('#s3title').textContent=c.title||'—';
-  $('#s3dep').textContent=c.depositor||'—';
-  $('#s3owner').textContent=c.owner||'—';
+  $('#s3count').textContent = valid.length+' dataset'+(valid.length===1?'':'s')+' will be '
+    +(state.publish?'published':'created');
+  const sk=$('#s3skip');
+  if(invalid.length){ sk.classList.remove('hidden');
+    sk.textContent = invalid.length+' file'+(invalid.length===1?'':'s')+' had errors and will be skipped.'; }
+  else sk.classList.add('hidden');
+  const listWrap=$('#s3files'); listWrap.innerHTML='';
+  valid.forEach(f=>{
+    const cit=(f.dryBody&&f.dryBody.preview&&f.dryBody.preview.citation)||{};
+    const rowd=el('div','s3frow');
+    rowd.appendChild(el('span','s3fn', f.name));
+    rowd.appendChild(el('span','s3ft', cit.title||'(untitled)'));
+    listWrap.appendChild(rowd);
+  });
 }
 const pubSw=$('#pubSw');
 pubSw.onclick=()=>{
   state.publish=!state.publish; pubSw.classList.toggle('on',state.publish);
   $('#pubTitle').textContent = state.publish?'Publish (version 1.0)':'Save as draft';
   $('#pubDesc').textContent = state.publish
-    ? 'The dataset is published immediately with the default license.'
-    : 'The dataset is created but not published. You can publish later.';
+    ? 'Each dataset is published immediately with the default license.'
+    : 'The datasets are created but not published. You can publish later.';
+  if(state.step===3) prepStep3();
 };
 $('#p3back').onclick=()=>setStep(2);
-// publishing is irreversible -> confirm first; draft submits directly
-$('#submitBtn').onclick=()=>{ if(state.publish) $('#pubMask').classList.add('show'); else submit(false); };
-$('#pubCancel').onclick=()=>$('#pubMask').classList.remove('show');   // stay on the submit step
-$('#pubConfirm').onclick=()=>{ $('#pubMask').classList.remove('show'); submit(false); };
+// publishing is irreversible -> confirm once for the whole batch; draft submits directly
+$('#submitBtn').onclick=()=>{ if(state.publish) $('#pubMask').classList.add('show'); else submitAll(); };
+$('#pubCancel').onclick=()=>$('#pubMask').classList.remove('show');
+$('#pubConfirm').onclick=()=>{ $('#pubMask').classList.remove('show'); submitAll(); };
 
-async function submit(force){
-  const btn=$('#submitBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span> Submitting…';
-  $('#s3err').innerHTML='';
+async function submitAll(){
+  setStep(4);
+  state.files.forEach(f=>{
+    if(f.status==='valid'){ f.submitStatus='submitting'; f.resultBody=null; f.resultHttp=0; }
+    else { f.submitStatus='error'; f.resultBody=f.dryBody; f.resultHttp=f.dryStatus; }  // invalid -> shown failed
+    f._ropen=false;
+  });
+  renderResults();
+  // each valid file submits independently and in parallel; one failure never blocks the others
+  await Promise.all(state.files.filter(f=>f.submitStatus==='submitting').map(f=>submitFile(f,false)));
+  renderResults();
+}
+async function submitFile(entry, force){
+  entry.submitStatus='submitting'; renderResults();
   const fd=new FormData();
-  fd.append('file',state.file); fd.append('parent',state.parent);
+  fd.append('file',entry.file); fd.append('parent',state.parent);
   fd.append('dry_run','false'); fd.append('publish', state.publish?'true':'false');
   fd.append('force_update', force?'true':'false');
-  if(state.server) fd.append('server',state.server);
-  if(Object.keys(state.mapping).length) fd.append('mapping', JSON.stringify(state.mapping));
+  if(Object.keys(entry.mapping).length) fd.append('mapping', JSON.stringify(entry.mapping));
   const {status,body}=await api('/dataverse/import',{method:'POST',body:fd});
-  btn.disabled=false; btn.textContent='Submit';
-  if(status===409 && body){ showDup(body); return; }
-  if((status===200||status===201) && body){ showResult(body); return; }
-  // error -> stay on this step so the user can retry without re-uploading
-  const msg = isServerDown(status) ? serverDownMsg(status)
-    : ('Import failed (HTTP '+status+'): '+
-       ((body && (body.errors ? body.errors.join('; ') : body.detail)) || 'unknown error'));
-  $('#s3err').appendChild(banner('bad','!',msg));
+  entry.resultHttp=status; entry.resultBody=body;
+  if(status===409) entry.submitStatus='duplicate';
+  else if((status===200||status===201) && body) entry.submitStatus='success';
+  else entry.submitStatus='error';
+  renderResults();
 }
 
-/* duplicate modal */
-function showDup(body){
-  $('#dupMsg').textContent = body.message || 'This dataset already exists.';
-  $('#dupMask').classList.add('show');
+/* ---------- step 4: per-file results ---------- */
+function renderResults(){
+  const list=$('#resultsList'); if(!list) return;
+  list.innerHTML='';
+  let ok=0, bad=0, busy=0;
+  state.files.forEach(f=>{
+    if(f.submitStatus==='success') ok++;
+    else if(f.submitStatus==='submitting') busy++;
+    else bad++;
+    list.appendChild(resultRow(f));
+  });
+  const total=state.files.length;
+  $('#resSum').textContent = busy
+    ? ('Importing… '+ok+' done'+(bad?(', '+bad+' failed'):'')+', '+busy+' in progress')
+    : (ok+' of '+total+' succeeded'+(bad?(' · '+bad+' failed'):''));
+  $('#resTitle').textContent = busy ? 'Importing…' : (bad===0?'All done 🎉':(ok===0?'All failed':'Partly done'));
+  const icon=$('#okIcon');
+  icon.style.color=''; icon.style.background=''; icon.style.borderColor='';
+  if(busy){ icon.textContent='…'; }
+  else if(bad===0){ icon.textContent='✓'; icon.style.color='var(--good)'; icon.style.background='var(--good-bg)'; icon.style.borderColor='var(--green-bd)'; }
+  else if(ok===0){ icon.textContent='✕'; icon.style.color='var(--bad)'; icon.style.background='var(--bad-bg)'; icon.style.borderColor='var(--red-bd)'; }
+  else { icon.textContent='!'; icon.style.color='var(--warn)'; icon.style.background='var(--warn-bg)'; icon.style.borderColor='var(--orange-bd)'; }
 }
-$('#dupCancel').onclick=()=>{ $('#dupMask').classList.remove('show'); resetAll(); };
-$('#dupForce').onclick=()=>{ $('#dupMask').classList.remove('show'); submit(true); };
-
-/* ---------- step 4: result ---------- */
-function showResult(body, errStatus, errBody){
-  state.lastResult = body || null;
-  setStep(4);
-  const grid=$('#resGrid'); grid.innerHTML=''; $('#urlWrap').classList.add('hidden');
-  if(!body){
-    $('#okIcon').textContent='✕'; $('#okIcon').style.color='var(--bad)';
-    $('#okIcon').style.background='var(--bad-bg)'; $('#okIcon').style.borderColor='var(--red-bd)';
-    $('#resTitle').textContent='Submission failed';
-    const errs=(errBody&&(errBody.errors||[errBody.detail||errBody.message]))||['Unknown error'];
-    $('#resSub').textContent='HTTP '+esc(errStatus)+' — '+esc(Array.isArray(errs)?errs.join('; '):errs);
-    return;
+function resultRow(entry){
+  const box=el('div','resrow'+(entry._ropen?' open':''));
+  const h=el('div','resrowh');
+  const ic=el('div','resicon');
+  if(entry.submitStatus==='submitting'){ ic.classList.add('busy'); ic.appendChild(el('span','spin')); }
+  else if(entry.submitStatus==='success'){ ic.classList.add('ok'); ic.textContent='✓'; }
+  else { ic.classList.add('bad'); ic.textContent='✕'; }
+  h.appendChild(ic);
+  h.appendChild(el('div','resname', entry.name));
+  h.appendChild(el('span','resshort', resultShort(entry)));
+  h.appendChild(el('span','reschev','▸'));
+  h.onclick=()=>{ entry._ropen=!entry._ropen; box.classList.toggle('open'); };
+  box.appendChild(h);
+  const d=el('div','resdetail'); d.appendChild(resultDetail(entry)); box.appendChild(d);
+  return box;
+}
+function resultShort(entry){
+  const b=entry.resultBody, s=entry.submitStatus;
+  if(s==='submitting') return 'importing…';
+  if(s==='success') return b.published?'published':(b.action==='updated'?'updated':'created (draft)');
+  if(s==='duplicate') return 'duplicate — needs confirmation';
+  if(entry.status!=='valid') return 'validation failed';
+  return 'failed (HTTP '+(entry.resultHttp||'?')+')';
+}
+function resultDetail(entry){
+  const s=entry.submitStatus, b=entry.resultBody;
+  const wrap=el('div'); wrap.style.marginTop='12px';
+  if(s==='submitting'){ wrap.appendChild(el('div','small muted','Importing…')); return wrap; }
+  if(s==='duplicate'){
+    wrap.appendChild(banner('warn','!', (b&&b.message)||'A matching dataset already exists.'));
+    const btn=el('button','btn primary'); btn.textContent='Force update'; btn.style.marginTop='10px';
+    btn.onclick=()=>submitFile(entry,true);
+    wrap.appendChild(btn);
+    return wrap;
   }
-  const published = body.published;
-  $('#okIcon').textContent='✓'; $('#okIcon').style.color='var(--good)';
-  $('#okIcon').style.background='var(--good-bg)'; $('#okIcon').style.borderColor='var(--green-bd)';
-  $('#resTitle').textContent = published ? 'Dataset published 🎉'
-    : (body.action==='updated' ? 'Dataset updated' : 'Dataset created (draft)');
-  $('#resSub').textContent = published
-    ? 'Your dataset is live (version 1.0). It can be accessed at the URL below.'
-    : 'Saved as a draft. Publish it later from Dataverse, or re-run with Publish on.';
+  if(s==='error'){
+    const eb=b||{};
+    const errs=eb.errors || (eb.detail?[eb.detail]:[]) || [];
+    wrap.appendChild(banner('bad','✕', errs.length?'This file was not imported:'
+      :('Import failed'+(entry.resultHttp?(' (HTTP '+entry.resultHttp+')'):'')+'.')));
+    if(eb.stage) wrap.appendChild(el('div','small muted','Stage: '+eb.stage));
+    if(errs.length){ const ul=el('ul','errs'); errs.forEach(e=>ul.appendChild(el('li',null,e))); wrap.appendChild(ul); }
+    return wrap;
+  }
+  wrap.appendChild(resultGrid(b));   // success
+  return wrap;
+}
+function resultGrid(body){
+  const wrap=el('div');
+  const published=body.published;
+  wrap.appendChild(banner('good','✓', published?'Published (version 1.0).'
+    : (body.action==='updated'?'Existing dataset updated (draft).':'Created as a draft.')));
+  const grid=el('div','pv'); grid.style.marginTop='10px';
   grid.appendChild(kv('Status', body.status));
   grid.appendChild(kv('Version', body.versionState||'—'));
   grid.appendChild(kv('Dataset id', body.datasetId));
   grid.appendChild(kv('Persistent id', body.persistentId));
-  grid.appendChild(kv('Owner (admin)', (body.owner||'—')+(body.ownerAssignment?'  ['+body.ownerAssignment+']':'')));
+  grid.appendChild(kv('Owner (admin)', body.owner||'—'));
   grid.appendChild(kv('License', body.license||'—'));
   if(body.roleAssignments && body.roleAssignments.length){
-    const ra=body.roleAssignments.map(r=>{
-      const acct=r.account||'(no account)';
+    const ra=body.roleAssignments.map(r=>{ const acct=r.account||'(no account)';
       const done=['ok','assigned','already'].includes(r.status);
-      return r.author+' → '+acct+' ['+r.role+(done?'':'; '+(r.status||'not assigned'))+']';
-    });
+      return r.author+' → '+acct+' ['+r.role+(done?'':'; '+(r.status||'not assigned'))+']'; });
     const d=kv('Dataset roles', chips(ra)); d.style.gridColumn='1 / -1'; grid.appendChild(d);
   }
-  if(body.ownerAssignment && String(body.ownerAssignment).startsWith('failed')){
-    const b=banner('warn','!','Owner admin grant did not apply: '+body.ownerAssignment);
-    b.style.gridColumn='1 / -1'; grid.appendChild(b);
-  }
+  wrap.appendChild(grid);
   if(body.url){
-    $('#urlWrap').classList.remove('hidden');
-    $('#resUrl').value=body.url; $('#openUrl').href=body.url;
+    const ub=el('div'); ub.style.marginTop='6px';
+    ub.appendChild(el('div','k','Dataset URL'));
+    const bx=el('div','urlbox');
+    const inp=el('input'); inp.type='text'; inp.readOnly=true; inp.value=body.url; bx.appendChild(inp);
+    const cp=el('button','btn'); cp.textContent='Copy';
+    cp.onclick=()=>{ inp.select(); navigator.clipboard&&navigator.clipboard.writeText(inp.value); }; bx.appendChild(cp);
+    const op=el('a','btn primary'); op.textContent='Open ↗'; op.href=body.url; op.target='_blank'; op.rel='noopener'; bx.appendChild(op);
+    ub.appendChild(bx); wrap.appendChild(ub);
   }
+  if(body.warnings && body.warnings.length){
+    body.warnings.forEach(w=>{const bn=banner('warn','!',w); bn.style.marginTop='8px'; wrap.appendChild(bn);});
+  }
+  return wrap;
 }
-$('#copyUrl').onclick=()=>{ $('#resUrl').select(); navigator.clipboard&&navigator.clipboard.writeText($('#resUrl').value); };
 $('#again').onclick=resetAll;
 
 function resetAll(){
-  state.file=null; state.dry=null; state.publish=false; state.lastResult=null; state.parent=''; state.mapping={};
-  $('#fileRow').classList.add('hidden'); $('#dryOut').classList.add('hidden'); $('#matchOut').classList.add('hidden');
+  state.files=[]; state.publish=false; state.parent='';
   fileInput.value=''; pubSw.classList.remove('on');
   $('#pubTitle').textContent='Save as draft';
-  $('#pubDesc').textContent='The dataset is created but not published. You can publish later.';
+  $('#pubDesc').textContent='The datasets are created but not published. You can publish later.';
+  $('#resultsList').innerHTML='';
   setStep(1); initStep1();
 }
 
