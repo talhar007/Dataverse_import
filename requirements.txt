@@ -1,0 +1,7 @@
+# Excel -> Dataverse importer runtime deps.
+# Ranges (not exact pins) so the image builds against public PyPI or a private index.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+openpyxl>=3.1
+requests>=2.31

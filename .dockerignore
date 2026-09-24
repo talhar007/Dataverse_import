@@ -1,0 +1,19 @@
+# keep the build context small and secrets out of the image
+.venv/
+**/__pycache__/
+*.pyc
+.env
+.env.example
+*.xlsx
+blocks_*.json
+dataset.json
+scratch_*
+.git/
+.claude/
+.gitignore
+API_README.md
+DEPLOY.md
+PROJECT_BRIEF.md
+metaforge_to_dataverse.py
+validate_and_post.py
+test_api_client.py

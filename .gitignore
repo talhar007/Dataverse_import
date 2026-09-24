@@ -1,0 +1,14 @@
+# secrets / runtime config
+.env
+.env.server
+certs/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# local data / fixtures (contain real names, emails, metadata)
+*.xlsx
+blocks_*.json
+dataset.json

@@ -1,0 +1,18 @@
+services:
+  importer:
+    build: .
+    image: excel-dataverse-importer:latest
+    container_name: excel-dataverse-importer
+    restart: unless-stopped
+    # Reads DATAVERSE_TOKEN / DATAVERSE_URL / DATAVERSE_ROOT / DATAVERSE_INSECURE from .env
+    env_file:
+      - .env
+    ports:
+      # host:container  -- reverse-proxy /api/importdataset on the Dataverse host to 127.0.0.1:8000
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

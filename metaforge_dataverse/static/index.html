@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dataverse Import</title>
+<style>
+  /* Workbench palette (light). The app's original variable names are kept as
+     aliases (bottom) so every existing rule inherits the new colours; dark mode
+     only redefines the base tokens and the aliases follow automatically. */
+  :root{
+    --bg:#f3f0e9;--surface:#fffdf8;--surface2:#f5f1e8;--surface3:#f0ece2;--surface4:#faf7f0;
+    --strip:#eae5d9;--inset:#fff;
+    --border:#ded7c6;--border2:#c6bda6;--hairline:#ede8da;--hairline2:#f0ebde;
+    --text:#1b2230;--text2:#46536b;--text3:#6b7688;--text4:#8d8674;--text5:#b3aa92;
+    --gold:#C9A227;--gold-ink:#7a600f;--on-gold:#1b2230;
+    --gold-tint:rgba(201,162,39,.13);--gold-tint2:rgba(201,162,39,.10);
+    --blue:#1f6fa8;--blue-ink:#15567f;--on-blue:#fff;
+    --blue-tint:rgba(31,111,168,.10);--blue-tint2:rgba(31,111,168,.07);--blue-bd:rgba(31,111,168,.4);
+    --green:#2f7a3f;--green-tint:rgba(47,122,63,.10);--green-bd:rgba(47,122,63,.4);
+    --orange:#a8550d;--orange-tint:rgba(168,85,13,.10);--orange-bd:rgba(168,85,13,.45);
+    --red:#b6371f;--red-tint:rgba(182,55,31,.10);--red-bd:rgba(182,55,31,.45);
+    --overlay:rgba(27,34,48,.45);--scrollbar:#c3bba6;
+    --shadow-pop:0 12px 30px rgba(27,34,48,.2);
+    --shadow-modal:0 30px 70px rgba(27,34,48,.34);
+    /* aliases -> original names used throughout the stylesheet */
+    --bg2:var(--surface2);--panel:var(--surface);--panel2:var(--surface2);
+    --muted:var(--text3);--heading:var(--text);
+    --accent:var(--gold);--accent2:var(--gold);--link:var(--blue);
+    --good:var(--green);--good-bg:var(--green-tint);
+    --bad:var(--red);--bad-bg:var(--red-tint);
+    --warn:var(--orange);--warn-bg:var(--orange-tint);
+    --chip:var(--strip);--shadow:var(--shadow-pop);
+  }
+  /* Nightshift palette (dark) — only the base tokens change */
+  :root[data-theme="dark"]{
+    --bg:#080f1c;--surface:#0d1828;--surface2:#12203a;--surface3:#192b48;--surface4:#0b1526;
+    --strip:#0a1322;--inset:#091320;
+    --border:#1e3554;--border2:#274569;--hairline:#17293f;--hairline2:#132238;
+    --text:#eaeefc;--text2:#9db0d0;--text3:#7d92b3;--text4:#6b7f9d;--text5:#55688a;
+    --gold:#C9A227;--gold-ink:#e0c46a;--on-gold:#080f1c;
+    --gold-tint:rgba(201,162,39,.18);--gold-tint2:rgba(201,162,39,.12);
+    --blue:#5DADE2;--blue-ink:#9ad6fb;--on-blue:#0d1421;
+    --blue-tint:rgba(93,173,226,.14);--blue-tint2:rgba(93,173,226,.09);--blue-bd:rgba(93,173,226,.45);
+    --green:#6fbf63;--green-tint:rgba(111,191,99,.15);--green-bd:rgba(111,191,99,.45);
+    --orange:#f09030;--orange-tint:rgba(240,144,48,.14);--orange-bd:rgba(240,144,48,.45);
+    --red:#e05a44;--red-tint:rgba(224,90,68,.15);--red-bd:rgba(224,90,68,.45);
+    --overlay:rgba(0,0,0,.72);--scrollbar:#31496e;
+    --shadow-pop:0 12px 30px rgba(0,0,0,.55);
+    --shadow-modal:0 30px 70px rgba(0,0,0,.7);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .serif{font-family:Georgia,"Times New Roman",serif}
+  a{color:var(--link);text-decoration:none} a:hover{text-decoration:underline}
+  h1,h2,h3{color:var(--heading);margin:0}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px}
+  /* top bar */
+  .topbar{display:flex;align-items:center;justify-content:space-between;
+    border-top:3px solid var(--accent);padding:18px 0 14px}
+  .brand{display:flex;flex-direction:column;gap:2px}
+  .brand .t{font-size:20px;font-weight:700;color:var(--accent2);letter-spacing:.2px}
+  .brand .s{font-size:11px;letter-spacing:2px;color:var(--muted);text-transform:uppercase}
+  .toolbtns{display:flex;gap:10px}
+  .btn{cursor:pointer;border:1px solid var(--border2);background:var(--panel);color:var(--text);
+    padding:9px 14px;border-radius:9px;font-size:14px;display:inline-flex;align-items:center;gap:8px;
+    transition:.12s border-color,.12s background}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--gold);border-color:transparent;
+    color:var(--on-gold);font-weight:600}
+  .btn.primary:hover{filter:brightness(1.06)}
+  .btn.ghost{background:transparent}
+  .btn:disabled{opacity:.45;cursor:not-allowed;border-color:var(--border)}
+  .btn.danger{border-color:var(--red-bd);color:var(--red);background:var(--red-tint)}
+  .btn.danger:hover{border-color:var(--bad)}
+  /* hero card */
+  .hero{display:flex;gap:18px;align-items:flex-start;
+    background:linear-gradient(135deg,var(--gold-tint),var(--surface2));
+    border:1px solid var(--border);border-left:3px solid var(--accent);
+    border-radius:16px;padding:22px 24px;box-shadow:var(--shadow)}
+  .hero-badge{flex:none;width:46px;height:46px;border-radius:12px;display:grid;place-items:center;
+    background:var(--gold-tint);border:1px solid var(--border2);color:var(--gold);font-size:22px}
+  .hero h1{font-size:25px}
+  .hero p{color:var(--muted);margin:8px 0 0;max-width:72ch}
+  /* stepper */
+  .stepper{display:flex;align-items:center;gap:8px;margin:26px 2px 8px;flex-wrap:wrap}
+  .step{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px}
+  .step .n{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:13px;
+    background:var(--chip);color:var(--muted);border:1px solid var(--border2)}
+  .step.active .n{background:var(--gold);color:var(--on-gold);border-color:transparent;font-weight:700}
+  .step.done .n{background:var(--gold);color:var(--on-gold);border-color:transparent}
+  .step.active .lbl{color:var(--text)}
+  .step.clk{cursor:pointer}
+  .step.clk:hover .lbl{color:var(--text)}
+  .step.clk:hover .n{border-color:var(--accent)}
+  .sep{flex:1;height:1px;background:var(--border);min-width:16px}
+  /* collection tree */
+  .tree{border:1px solid var(--border2);border-radius:10px;background:var(--panel2);
+    max-height:340px;overflow:auto;padding:6px}
+  .tnode{}
+  .trow{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:8px;cursor:pointer}
+  .trow:hover{background:var(--chip)}
+  .trow.sel{background:var(--gold-tint);outline:1px solid var(--gold)}
+  .trow.group{cursor:default;opacity:.72}
+  .trow.group:hover{background:transparent}
+  .trow .tname{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+  .trow .talias{color:var(--muted);font-size:12px;font-family:ui-monospace,SFMono-Regular,monospace}
+  .trow .tbadge{font-size:10px;color:var(--muted);border:1px solid var(--border2);border-radius:6px;
+    padding:0 5px;flex:none}
+  .trow .tarrow{width:22px;height:22px;display:grid;place-items:center;color:var(--muted);font-size:11px;
+    flex:none;cursor:pointer;border-radius:6px}
+  .trow .tarrow:hover{background:var(--border2);color:var(--text)}
+  .trow .thl{background:var(--gold-tint);color:var(--heading);border-radius:3px;padding:0 1px}
+  .tchildren{margin-left:16px;border-left:1px solid var(--border);padding-left:4px}
+  .tchildren.collapsed{display:none}
+  #collSearch{margin-bottom:8px}
+  .tempty{padding:14px;color:var(--muted);font-style:italic;text-align:center}
+  /* panel */
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;
+    padding:22px;margin-top:16px;box-shadow:var(--shadow)}
+  .panel h2{font-size:18px;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:16px}
+  label.fld{display:block;font-size:12px;letter-spacing:.4px;color:var(--muted);
+    text-transform:uppercase;margin:14px 0 6px}
+  input[type=text],input[type=password],select{width:100%;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border2);border-radius:10px;padding:11px 12px;font-size:14px;outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+    linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+    background-position:calc(100% - 18px) 20px,calc(100% - 12px) 20px;background-size:6px 6px,6px 6px;
+    background-repeat:no-repeat}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .grow{flex:1;min-width:220px}
+  .actions{display:flex;justify-content:space-between;gap:12px;margin-top:22px}
+  /* dropzone */
+  .drop{border:2px dashed var(--border2);border-radius:14px;padding:34px;text-align:center;
+    background:var(--panel2);cursor:pointer;transition:.12s}
+  .drop:hover,.drop.over{border-color:var(--accent);background:var(--gold-tint2)}
+  .drop .ic{width:44px;height:44px;border-radius:11px;background:var(--chip);display:grid;place-items:center;
+    margin:0 auto 12px;color:var(--accent2)}
+  .drop b{color:var(--heading)} .drop .hint{color:var(--muted);font-size:13px;margin-top:6px}
+  .filechip{display:inline-flex;align-items:center;gap:10px;background:var(--chip);
+    border:1px solid var(--border2);border-radius:10px;padding:8px 12px;font-size:13.5px}
+  /* banners */
+  .banner{border-radius:12px;padding:12px 14px;font-size:14px;display:flex;gap:10px;align-items:flex-start}
+  .banner.good{background:var(--good-bg);border:1px solid var(--green-bd);color:var(--text)}
+  .banner.bad{background:var(--bad-bg);border:1px solid var(--red-bd);color:var(--text)}
+  .banner.warn{background:var(--warn-bg);border:1px solid var(--orange-bd);color:var(--text)}
+  .banner .bi{font-weight:700}
+  ul.errs{margin:8px 0 0;padding-left:18px} ul.errs li{margin:3px 0}
+  /* preview */
+  .pv{display:grid;grid-template-columns:1fr 1fr;gap:10px 22px;margin-top:6px}
+  .pv .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+  .pv .v{color:var(--text);margin-bottom:8px;word-break:break-word}
+  .chip{display:inline-block;background:var(--chip);border:1px solid var(--border2);border-radius:999px;
+    padding:2px 10px;margin:2px 4px 2px 0;font-size:12.5px}
+  .blk{margin-top:12px;border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .blk .h{background:var(--panel2);padding:10px 14px;font-weight:600;color:var(--heading);font-size:14px;
+    display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .blk .h .cnt{color:var(--muted);font-weight:400;font-size:12.5px}
+  .blk.collap .h{cursor:pointer;user-select:none}
+  .blk.collap .h:hover{background:var(--chip)}
+  .blk .h .left{display:flex;align-items:center;gap:10px;min-width:0}
+  .blk .h .chev{color:var(--muted);font-size:12px;transition:transform .15s;flex:none}
+  .blk.open .h .chev{transform:rotate(90deg)}
+  .blk .body{display:none} .blk.open .body{display:block}
+  /* completeness stats */
+  .stats{display:flex;gap:22px;align-items:center;margin-top:14px;padding:16px 18px;flex-wrap:wrap;
+    border:1px solid var(--border);border-radius:12px;background:var(--panel2)}
+  .stats .donutwrap{position:relative;flex:none}
+  .stats .donutctr{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;gap:1px}
+  .stats .donutctr .p{font-size:22px;font-weight:700;color:var(--heading);line-height:1.05}
+  .stats .donutctr .s{font-size:11px;color:var(--muted);line-height:1}
+  .stats .legend{display:flex;flex-direction:column;gap:5px;font-size:13px;flex:1;min-width:220px}
+  .stats .legrow{display:flex;align-items:center;gap:9px}
+  .stats .legrow .sw{width:11px;height:11px;border-radius:3px;flex:none}
+  .stats .legrow .nm{flex:1;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stats .legrow .fr{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tblwrap{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border-top:1px solid var(--border);padding:8px 12px;text-align:left;white-space:nowrap}
+  th{color:var(--muted);font-weight:600;background:var(--panel2)}
+  .empty{color:var(--muted);font-style:italic}
+  /* toggle */
+  .toggle{display:inline-flex;align-items:center;gap:12px}
+  .sw{width:52px;height:28px;border-radius:999px;background:var(--chip);border:1px solid var(--border2);
+    position:relative;cursor:pointer;transition:.15s}
+  .sw .kn{position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:#9fb4d4;
+    transition:.15s}
+  .sw.on{background:linear-gradient(180deg,var(--accent2),var(--accent));border-color:transparent}
+  .sw.on .kn{left:26px;background:#fff}
+  .swlbl b{color:var(--heading)} .swlbl span{color:var(--muted);font-size:13px}
+  /* modal */
+  .mask{position:fixed;inset:0;background:rgba(4,8,16,.66);display:none;align-items:center;
+    justify-content:center;padding:20px;z-index:50}
+  .mask.show{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--border2);border-radius:16px;max-width:560px;
+    width:100%;padding:22px;box-shadow:var(--shadow)}
+  .modal h3{font-size:18px;margin-bottom:8px}
+  .spin{width:18px;height:18px;border:2px solid var(--border2);border-top-color:var(--accent);
+    border-radius:50%;display:inline-block;animation:sp .7s linear infinite;vertical-align:-3px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .center{text-align:center}
+  .big-ok{width:64px;height:64px;border-radius:50%;background:var(--good-bg);border:1px solid var(--green-bd);
+    display:grid;place-items:center;margin:6px auto 12px;font-size:30px;color:var(--good)}
+  .urlbox{display:flex;gap:8px;margin-top:14px}
+  .urlbox input{flex:1}
+  .muted{color:var(--muted)} .small{font-size:12.5px}
+  .hidden{display:none!important}
+  code.k{background:var(--chip);border:1px solid var(--border2);border-radius:6px;padding:1px 6px;font-size:12.5px}
+  /* auth area */
+  .autharea{display:inline-flex;align-items:center;gap:10px}
+  .whoami{display:inline-flex;align-items:center;gap:8px;background:var(--chip);
+    border:1px solid var(--border2);border-radius:999px;padding:5px 12px;font-size:13px;color:var(--text)}
+  .whoami .dot{width:8px;height:8px;border-radius:50%;background:var(--good);flex:none}
+  .whoami .nm{max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .signin-note{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;
+    border:1px solid var(--border2);border-left:3px solid var(--gold);border-radius:12px;
+    background:var(--panel2);padding:14px 16px;margin-top:8px}
+  .signin-note .msg{color:var(--text);font-size:14px}
+  /* sheet <-> metadata-block matcher */
+  .matchcard{border:1px solid var(--border);border-radius:12px;background:var(--panel2);padding:16px 18px}
+  .matchcard h3{font-size:15px}
+  .matchcard .sub{margin:4px 0 6px}
+  .matchrow{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--hairline)}
+  .matchsheet{flex:0 0 38%;min-width:0}
+  .matchsheet .mname{color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .matchsheet .mmeta{color:var(--muted);font-size:11.5px;margin-top:1px}
+  .matcharrow{color:var(--muted);flex:none}
+  select.matchsel{flex:1;min-width:0;padding:8px 30px 8px 11px;background-position:calc(100% - 16px) 16px,calc(100% - 10px) 16px}
+  .matchstat{flex:none;font-size:10.5px;border-radius:999px;padding:2px 9px;border:1px solid var(--border2);
+    color:var(--muted);white-space:nowrap}
+  .matchstat.auto{color:var(--green);border-color:var(--green-bd);background:var(--green-tint)}
+  .matchstat.manual{color:var(--blue);border-color:var(--blue-bd);background:var(--blue-tint)}
+  .matchstat.warn{color:var(--orange);border-color:var(--orange-bd);background:var(--orange-tint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand">
+      <div class="t serif">◈ Dataverse Import</div>
+      <div class="s mono">dataset import workbench</div>
+    </div>
+    <div class="toolbtns">
+      <span id="authArea" class="autharea"></span>
+      <button class="btn ghost" id="btnTheme">☀ Light</button>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-badge">◈</div>
+    <div>
+      <h1 class="serif">Import a dataset from Excel</h1>
+      <p>Choose a collection, drop an Excel workbook, and preview exactly what will be created —
+         then save it as a draft or publish. Existing datasets are detected first, so nothing is
+         overwritten by accident.</p>
+    </div>
+  </div>
+
+  <div class="stepper" id="stepper">
+    <div class="step" data-s="1"><span class="n">1</span><span class="lbl">Collection</span></div>
+    <div class="sep"></div>
+    <div class="step" data-s="2"><span class="n">2</span><span class="lbl">Upload &amp; preview</span></div>
+    <div class="sep"></div>
+    <div class="step" data-s="3"><span class="n">3</span><span class="lbl">Publish &amp; submit</span></div>
+    <div class="sep"></div>
+    <div class="step" data-s="4"><span class="n">4</span><span class="lbl">Result</span></div>
+  </div>
+
+  <!-- STEP 1 -->
+  <section class="panel" id="p1">
+    <h2>Target Dataverse</h2>
+    <div class="sub">The dataset will be created under this Dataverse collection.</div>
+    <div id="collLoading" class="hidden"><span class="spin"></span> Loading collections…</div>
+    <div id="collErr" class="banner bad hidden"></div>
+    <div id="collPick" class="hidden">
+      <label class="fld">Target Dataverse <span class="small muted" id="collHint"></span></label>
+      <input type="text" id="collSearch" placeholder="🔍  Search collections by name or alias…">
+      <div id="collTree" class="tree"></div>
+      <div class="small muted" style="margin-top:8px">
+        Can’t see yours? <a href="#" id="manualToggle">Enter an alias manually</a>.</div>
+    </div>
+    <div id="manualWrap" class="hidden">
+      <label class="fld">Collection alias</label>
+      <input type="text" id="manualAlias" placeholder="e.g. crc1218_testing">
+    </div>
+    <div class="actions">
+      <span></span>
+      <button class="btn primary" id="p1next" disabled>Continue →</button>
+    </div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="panel hidden" id="p2">
+    <h2>Upload &amp; preview</h2>
+    <div class="sub">Target: <code class="k" id="p2coll"></code>. The file is validated on upload
+      (dry run) and previewed below — nothing is created yet.</div>
+    <div id="drop" class="drop">
+      <div class="ic">⬆</div>
+      <div><b>Drop an Excel workbook (.xlsx) here</b>, or click to browse</div>
+      <div class="hint">Only the file is read — no data is written during preview.</div>
+      <input type="file" id="fileInput" accept=".xlsx" class="hidden">
+    </div>
+    <div id="fileRow" class="row hidden" style="margin-top:12px">
+      <span class="filechip" id="fileChip"></span>
+      <button class="btn ghost" id="reupload">Replace file</button>
+    </div>
+
+    <div id="matchOut" class="hidden" style="margin-top:16px"></div>
+    <div id="dryLoading" class="hidden" style="margin-top:16px"><span class="spin"></span> Validating…</div>
+    <div id="dryOut" class="hidden" style="margin-top:16px"></div>
+
+    <div class="actions">
+      <button class="btn ghost" id="p2back">← Back</button>
+      <button class="btn primary" id="p2next" disabled>Continue →</button>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="panel hidden" id="p3">
+    <h2>Publish &amp; submit</h2>
+    <div class="sub">Review, choose draft or publish, then submit.</div>
+    <div class="pv">
+      <div><div class="k">Collection</div><div class="v mono" id="s3coll"></div></div>
+      <div><div class="k">Dataset title</div><div class="v" id="s3title"></div></div>
+      <div><div class="k">Depositor (you)</div><div class="v" id="s3dep"></div></div>
+      <div><div class="k">Owner (admin)</div><div class="v mono" id="s3owner"></div></div>
+    </div>
+    <div class="banner good" style="margin-top:14px"><span class="bi">✓</span>
+      <div>Validation passed — ready to submit.</div></div>
+
+    <label class="fld">Publication</label>
+    <div class="row" style="justify-content:space-between">
+      <div class="swlbl"><b id="pubTitle">Save as draft</b><br>
+        <span id="pubDesc">The dataset is created but not published. You can publish later.</span></div>
+      <div class="toggle"><span class="small muted">Draft</span>
+        <div class="sw" id="pubSw"><div class="kn"></div></div>
+        <span class="small muted">Publish</span></div>
+    </div>
+
+    <div id="s3err" style="margin-top:12px"></div>
+    <div class="actions">
+      <button class="btn ghost" id="p3back">← Back</button>
+      <button class="btn primary" id="submitBtn">Submit</button>
+    </div>
+  </section>
+
+  <!-- STEP 4 -->
+  <section class="panel hidden" id="p4">
+    <div class="center">
+      <div class="big-ok" id="okIcon">✓</div>
+      <h2 id="resTitle">Done</h2>
+      <div class="sub" id="resSub" style="margin-top:6px"></div>
+    </div>
+    <div class="pv" id="resGrid" style="margin-top:8px"></div>
+    <div id="urlWrap" class="hidden">
+      <label class="fld">Dataset URL</label>
+      <div class="urlbox">
+        <input type="text" id="resUrl" readonly>
+        <button class="btn" id="copyUrl">Copy</button>
+        <a class="btn primary" id="openUrl" target="_blank" rel="noopener">Open ↗</a>
+      </div>
+    </div>
+    <div class="actions"><span></span>
+      <button class="btn primary" id="again">Import another →</button></div>
+  </section>
+</div>
+
+
+<!-- Publish confirmation modal -->
+<div class="mask" id="pubMask">
+  <div class="modal">
+    <h3>Publish this dataset?</h3>
+    <div class="banner warn" style="margin:8px 0"><span class="bi">!</span>
+      <div>You are about to <b>publish</b> the dataset. Publishing is permanent — a published
+        version <b>cannot be un-published or reverted</b>. To keep it editable, cancel and choose
+        <b>Draft</b> instead.</div></div>
+    <div class="actions">
+      <button class="btn ghost" id="pubCancel">Cancel</button>
+      <button class="btn primary" id="pubConfirm">Continue &amp; publish</button>
+    </div>
+  </div>
+</div>
+
+<!-- Duplicate modal -->
+<div class="mask" id="dupMask">
+  <div class="modal">
+    <h3>A matching dataset already exists</h3>
+    <div class="banner warn" id="dupMsg" style="margin:6px 0 4px"></div>
+    <div class="small muted">Cancel to stop, or Force update to overwrite the existing dataset’s
+      draft with this file.</div>
+    <div class="actions">
+      <button class="btn danger" id="dupCancel">Cancel</button>
+      <button class="btn primary" id="dupForce">Force update</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const el = (t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;};
+const esc = s => (s==null?'':String(s));
+
+/* ---------- SVG rings ---------- */
+const NS='http://www.w3.org/2000/svg';
+function svgEl(tag,attrs){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
+function pctColor(p){ return p>=100?'var(--green)':p>=67?'var(--gold)':p>=34?'var(--orange)':'var(--red)'; }
+// single-colour progress ring with "filled/total" in the centre
+function ring(filled,total,size,stroke){
+  size=size||46; stroke=stroke||6;
+  const pct=total?filled/total:0, r=(size-stroke)/2, c=size/2, circ=2*Math.PI*r;
+  const svg=svgEl('svg',{width:size,height:size,viewBox:`0 0 ${size} ${size}`}); svg.style.flex='none';
+  svg.appendChild(svgEl('circle',{cx:c,cy:c,r,fill:'none',stroke:'var(--border2)','stroke-width':stroke}));
+  svg.appendChild(svgEl('circle',{cx:c,cy:c,r,fill:'none',stroke:'var(--accent)','stroke-width':stroke,
+    'stroke-linecap':'round','stroke-dasharray':circ.toFixed(2),
+    'stroke-dashoffset':(circ*(1-pct)).toFixed(2),transform:`rotate(-90 ${c} ${c})`}));
+  const t=svgEl('text',{x:c,y:c+0.5,'text-anchor':'middle','dominant-baseline':'central',
+    'font-size':(size*0.27).toFixed(1),fill:'var(--heading)','font-weight':'700'});
+  t.textContent=total?`${filled}/${total}`:'—'; svg.appendChild(t);
+  return svg;
+}
+// whole-file completeness as a single-colour progress donut (per-sheet detail
+// lives in the legend/plots below, so this one just shows the overall figure).
+function progressDonut(pct,size,stroke){
+  size=size||120; stroke=stroke||14;
+  const r=(size-stroke)/2, c=size/2, circ=2*Math.PI*r, p=Math.max(0,Math.min(100,pct||0));
+  const svg=svgEl('svg',{width:size,height:size,viewBox:`0 0 ${size} ${size}`}); svg.style.flex='none';
+  svg.appendChild(svgEl('circle',{cx:c,cy:c,r,fill:'none',stroke:'var(--border2)','stroke-width':stroke}));
+  svg.appendChild(svgEl('circle',{cx:c,cy:c,r,fill:'none',stroke:'var(--orange)','stroke-width':stroke,
+    'stroke-linecap':'round','stroke-dasharray':circ.toFixed(2),
+    'stroke-dashoffset':(circ*(1-p/100)).toFixed(2),transform:`rotate(-90 ${c} ${c})`}));
+  return svg;
+}
+
+// Auth is via sign-in now; no manual token/server/root overrides in the UI.
+// Clear any values saved by an older build so login always governs identity.
+['dv_token','dv_server','dv_root'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+const state = { step:1, parent:'', file:null, dry:null, publish:false,
+  mapping:{},              // sheet title -> chosen block template ('' = skip)
+  token:'', server:'', root:'' };
+
+/* ---------- theme ---------- */
+function applyTheme(){
+  const light = localStorage.getItem('dv_theme')==='light';
+  document.documentElement.setAttribute('data-theme', light?'light':'dark');
+  $('#btnTheme').textContent = light?'☾ Dark':'☀ Light';
+}
+$('#btnTheme').onclick=()=>{localStorage.setItem('dv_theme',
+  localStorage.getItem('dv_theme')==='light'?'dark':'light');applyTheme();};
+
+/* ---------- stepper ---------- */
+function canGoStep(n){
+  if(n===1) return true;
+  if(n===2) return !!state.parent;
+  if(n===3) return !!state.dry;
+  if(n===4) return !!state.lastResult;
+  return false;
+}
+function setStep(n){
+  state.step=n;
+  [1,2,3,4].forEach(i=>$('#p'+i).classList.toggle('hidden', i!==n));
+  document.querySelectorAll('.step').forEach(s=>{
+    const si=+s.dataset.s;
+    s.classList.toggle('active', si===n);
+    s.classList.toggle('done', si<n);
+    s.classList.toggle('clk', si!==n && canGoStep(si));
+  });
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function navStep(n){ if(n===3) prepStep3(); setStep(n); }
+// clicking a step number jumps to it (when reachable)
+document.querySelectorAll('.step').forEach(s=>{
+  s.addEventListener('click',()=>{ const n=+s.dataset.s; if(n!==state.step && canGoStep(n)) navStep(n); });
+});
+
+/* ---------- api ---------- */
+async function api(path, opts={}){
+  // Token/server come from Settings if set, else the app's .env defaults.
+  opts.headers = Object.assign({}, opts.headers||{});
+  if(state.token) opts.headers['X-Dataverse-key']=state.token;
+  try{
+    const res = await fetch(path, opts);
+    let body=null; try{ body=await res.json(); }catch(e){}
+    return {status:res.status, ok:res.ok, body};
+  }catch(e){
+    return {status:0, ok:false, body:null, netError:true};   // couldn't reach our API
+  }
+}
+// Any 5xx (or a network failure, status 0) means the server is down/erroring.
+const isServerDown = st => st===0 || st>=500;
+const serverDownMsg = st => 'Error '+(st||500)+': Server is down. Please try again later.';
+
+/* ---------- auth (OIDC single sign-on) ---------- */
+const AUTH = { loaded:false, authenticated:false, user:null, oidcEnabled:false, serviceToken:false };
+async function loadAuth(){
+  try{
+    const res = await fetch('/auth/me');
+    if(res.ok){ Object.assign(AUTH, await res.json(), {loaded:true}); }
+  }catch(e){}
+  renderAuth();
+}
+function renderAuth(){
+  const a=$('#authArea'); if(!a) return; a.innerHTML='';
+  if(AUTH.authenticated && AUTH.user){
+    const who=el('span','whoami'); who.appendChild(el('span','dot'));
+    who.appendChild(el('span','nm', AUTH.user.name||AUTH.user.username||'signed in'));
+    a.appendChild(who);
+    const out=el('a','btn ghost'); out.textContent='Sign out'; out.href='/logout'; a.appendChild(out);
+  } else if (AUTH.oidcEnabled){
+    const inb=el('a','btn primary'); inb.textContent='Sign in'; inb.href='/login'; a.appendChild(inb);
+  }
+}
+function showSignIn(msg){
+  const box=$('#collErr'); box.innerHTML=''; box.classList.remove('hidden');
+  const note=el('div','signin-note');
+  note.appendChild(el('div','msg', msg||'Sign in with your FAIRdata Cologne account to choose a collection and import as yourself.'));
+  const b=el('a','btn primary'); b.textContent='Sign in →'; b.href='/login'; note.appendChild(b);
+  box.appendChild(note);
+}
+
+/* ---------- step 1: collections ---------- */
+function showCollErr(msg, withRetry){
+  const box=$('#collErr'); box.innerHTML='';
+  box.appendChild(el('span','bi','!'));
+  const d=el('div'); d.appendChild(el('div',null,msg));
+  if(withRetry){ const b=el('button','btn ghost','↻ Retry'); b.style.marginTop='10px';
+    b.onclick=initStep1; d.appendChild(b); }
+  box.appendChild(d); box.classList.remove('hidden');
+}
+async function initStep1(){
+  $('#p1next').disabled=true;
+  ['#collLoading','#collErr','#collPick','#manualWrap'].forEach(s=>$(s).classList.add('hidden'));
+  $('#collLoading').classList.remove('hidden');
+  const q = new URLSearchParams();
+  if(state.server) q.set('server',state.server);
+  if(state.root) q.set('root',state.root);
+  const qs=q.toString();
+  const {ok,body,status} = await api('/dataverse/collections'+(qs?('?'+qs):''));
+  $('#collLoading').classList.add('hidden');
+
+  if(ok && body && body.collections && body.collections.length){
+    renderTree(body.collections);
+    const nEd = body.collections.filter(c=>c.editable!==false).length;
+    $('#collHint').textContent = '· '+nEd+' you can add to';
+    $('#collPick').classList.remove('hidden');
+    return;
+  }
+  if(status===401){                               // not signed in / no credential
+    if(AUTH.oidcEnabled && !AUTH.authenticated){ showSignIn(); }
+    else { showCollErr('Not authorized (HTTP 401). '+(AUTH.oidcEnabled?'Try signing in again.':'Check your API key in Settings.'), false); }
+    return;
+  }
+  if(status===503){                               // no server configured
+    showCollErr('No credential available. '+(AUTH.oidcEnabled?'Sign in above, or ':'')+'set DATAVERSE_TOKEN in the .env file.', true);
+    return;
+  }
+  if(isServerDown(status)){                        // 5xx / unreachable -> clean "server down"
+    showCollErr(serverDownMsg(status), true);
+    return;
+  }
+  if(status===403){
+    showCollErr('Access denied (HTTP 403). '+(AUTH.authenticated?'Your account may lack access to any collection.':'Check your credential in Settings.'), false);
+    return;
+  }
+  // server reachable but nothing listed -> let them type an alias
+  showCollErr('No collections could be listed automatically. Enter a collection alias below.', false);
+  $('#manualWrap').classList.remove('hidden');
+}
+// build the collection tree from the flat {id,alias,name,parentId,editable} list
+let TREE = [];
+const _cmp=(a,b)=>((a.name||a.alias||'').toLowerCase()).localeCompare((b.name||b.alias||'').toLowerCase());
+function hlNode(text,q){                 // wrap the matched substring(s) in a highlight span
+  const frag=document.createDocumentFragment(); const low=text.toLowerCase(); let i=0,idx;
+  while(q && (idx=low.indexOf(q,i))>=0){
+    if(idx>i) frag.appendChild(document.createTextNode(text.slice(i,idx)));
+    frag.appendChild(el('span','thl',text.slice(idx,idx+q.length))); i=idx+q.length;
+  }
+  frag.appendChild(document.createTextNode(text.slice(i))); return frag;
+}
+function renderTree(cols){
+  if(cols){ TREE=cols; const small=cols.length<=12; cols.forEach(c=>{ if(!('_open' in c)) c._open=small; }); }
+  // (re)build hierarchy from parentId
+  const byId={}, roots=[];
+  TREE.forEach(c=>{ c._kids=[]; byId[c.id]=c; });
+  TREE.forEach(c=>{ const p=(c.parentId!=null)?byId[c.parentId]:null; (p?p._kids:roots).push(c); });
+  const sortRec=l=>{ l.sort(_cmp); l.forEach(n=>sortRec(n._kids)); }; sortRec(roots);
+  const q=($('#collSearch')?$('#collSearch').value.trim().toLowerCase():'');
+  const isMatch=c=> q && (((c.name||'')+' '+(c.alias||'')).toLowerCase().includes(q));
+  const mark=c=>{ c._match=isMatch(c); let any=c._match; c._kids.forEach(k=>{ if(mark(k)) any=true; }); c._has=any; return any; };
+  roots.forEach(mark);
+
+  const cont=$('#collTree'); cont.innerHTML=''; let shown=0;
+  function nodeEl(c){
+    if(q && !c._has) return null;        // during search, hide branches with no match
+    shown++;
+    const wrap=el('div','tnode'), isGroup=c.editable===false;
+    const row=el('div','trow'+(isGroup?' group':'')+((c.alias&&c.alias===state.parent)?' sel':''));
+    const nm=el('span','tname');
+    nm.appendChild(q ? hlNode(c.name||c.alias||'', q) : document.createTextNode(c.name||c.alias||''));
+    if(c.alias){ nm.appendChild(document.createTextNode(' ')); nm.appendChild(el('span','talias','· '+c.alias)); }
+    row.appendChild(nm);
+    if(isGroup) row.appendChild(el('span','tbadge','no access'));
+    const kidEls=[]; c._kids.forEach(k=>{ const e=nodeEl(k); if(e) kidEls.push(e); });
+    let arrow=null, kids=null;
+    if(kidEls.length){
+      const open = q ? true : !!c._open;      // search forces matched branches open
+      arrow=el('span','tarrow',open?'▾':'▸'); row.appendChild(arrow);
+      kids=el('div','tchildren'+(open?'':' collapsed')); kidEls.forEach(e=>kids.appendChild(e));
+    }
+    wrap.appendChild(row); if(kids) wrap.appendChild(kids);
+    if(arrow) arrow.onclick=(e)=>{ e.stopPropagation(); c._open=!c._open; renderTree(); };
+    if(!isGroup) row.onclick=()=>{ state.parent=c.alias; $('#p1next').disabled=false; renderTree(); };
+    else if(arrow) row.onclick=()=>{ c._open=!c._open; renderTree(); };
+    return wrap;
+  }
+  roots.forEach(r=>{ const e=nodeEl(r); if(e) cont.appendChild(e); });
+  if(shown===0) cont.appendChild(el('div','tempty', q ? ('No collections match “'+q+'”.') : 'No collections.'));
+}
+$('#collSearch').oninput=()=>renderTree();
+$('#manualToggle').onclick=e=>{e.preventDefault();$('#manualWrap').classList.toggle('hidden');};
+$('#manualAlias').oninput=e=>{state.parent=e.target.value.trim(); $('#p1next').disabled=!state.parent;};
+$('#p1next').onclick=()=>{ $('#p2coll').textContent=state.parent; goToUpload(); };
+
+/* ---------- step 2: upload + dry run ---------- */
+function goToUpload(){
+  setStep(2);
+  $('#dryOut').classList.add('hidden'); $('#p2next').disabled=true;
+  if(state.file){ showFile(); }
+}
+const drop=$('#drop'), fileInput=$('#fileInput');
+drop.onclick=()=>fileInput.click();
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>{ if(e.dataTransfer.files[0]) pickFile(e.dataTransfer.files[0]); });
+fileInput.onchange=e=>{ if(e.target.files[0]) pickFile(e.target.files[0]); };
+$('#reupload').onclick=()=>fileInput.click();
+function showFile(){
+  $('#fileChip').textContent='📄 '+state.file.name;
+  $('#fileRow').classList.remove('hidden');
+}
+function pickFile(f){ state.file=f; state.mapping={}; $('#matchOut').classList.add('hidden'); showFile(); runDry(); }
+
+async function runDry(){
+  $('#dryOut').classList.add('hidden'); $('#p2next').disabled=true;
+  $('#dryLoading').classList.remove('hidden');
+  const fd=new FormData();
+  fd.append('file',state.file); fd.append('parent',state.parent); fd.append('dry_run','true');
+  if(state.server) fd.append('server',state.server);
+  if(Object.keys(state.mapping).length) fd.append('mapping', JSON.stringify(state.mapping));
+  const {ok,status,body}=await api('/dataverse/import',{method:'POST',body:fd});
+  $('#dryLoading').classList.add('hidden');
+  if(body && body.matching) renderMatching(body.matching);   // shown on success AND on 422
+  state.dry = (status===200 && body && body.status==='validated') ? body : null;
+  renderDry(status, body);
+  $('#p2next').disabled = !state.dry;
+}
+
+function renderDry(status, body){
+  const out=$('#dryOut'); out.innerHTML=''; out.classList.remove('hidden');
+  if(isServerDown(status)){
+    out.appendChild(banner('bad','!',serverDownMsg(status)));
+    const b=el('button','btn ghost','↻ Retry'); b.style.marginTop='10px'; b.onclick=runDry; out.appendChild(b);
+    return;
+  }
+  if(!body){ out.appendChild(banner('bad','!','No response from the server. Try again.')); return; }
+
+  if(status!==200 || body.status!=='validated'){
+    const b=banner('bad','✕','This file is not ready to import — fix the issues below, adjust the sheet matching above, or replace the file.');
+    out.appendChild(b);
+    const errs = body.errors || (body.detail?[body.detail]:[]) || [];
+    if(body.stage) out.appendChild(el('div','small muted','Stage: '+body.stage));
+    if(errs.length){ const ul=el('ul','errs'); errs.forEach(e=>ul.appendChild(el('li',null,e))); out.appendChild(ul); }
+    if(body.account){ out.appendChild(el('div','small muted',
+      'Account: workbook email '+esc(body.account.workbookEmail)+' vs registered '+esc(body.account.registeredEmail))); }
+    // still show a preview if present
+    if(body.preview) out.appendChild(previewCard(body.preview, body));
+    return;
+  }
+  out.appendChild(banner('good','✓','Valid — '+esc(body.validationMessage||'ready to submit.')));
+  out.appendChild(previewCard(body.preview, body));
+}
+
+function banner(kind, icon, text){
+  const b=el('div','banner '+kind); b.appendChild(el('span','bi',icon)); b.appendChild(el('div',null,text)); return b;
+}
+function kv(k,v){ const w=el('div'); w.appendChild(el('div','k',k)); const d=el('div','v');
+  if(v instanceof Node) d.appendChild(v); else d.textContent=(v==null||v==='')?'—':v; w.appendChild(d); return w; }
+function chips(arr){ const w=el('div'); (arr||[]).forEach(x=>w.appendChild(el('span','chip',x)));
+  if(!arr||!arr.length) w.appendChild(el('span','empty','none')); return w; }
+
+/* ---------- sheet <-> metadata-block matcher (step 2) ---------- */
+function renderMatching(m){
+  const box=$('#matchOut');
+  if(!m || !Array.isArray(m.sheets) || !m.sheets.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
+  box.innerHTML=''; box.classList.remove('hidden');
+  const opts = m.available||[];
+  const card=el('div','matchcard');
+  card.appendChild(el('h3','','Match sheets to metadata blocks'));
+  card.appendChild(el('div','sub','Each Excel sheet on the left is imported into the metadata block you '
+    +'pick on the right, in '+esc(state.parent)+'. Names need not be identical — fix any wrong match, '
+    +'or choose “don’t import” to skip a sheet.'));
+  m.sheets.forEach(s=>{
+    const row=el('div','matchrow');
+    const left=el('div','matchsheet');
+    left.appendChild(el('div','mname', s.sheet));
+    left.appendChild(el('div','mmeta', s.rowCount+' row'+(s.rowCount===1?'':'s')
+      + (s.auto?('  ·  auto: '+s.auto):'')));
+    row.appendChild(left);
+    row.appendChild(el('div','matcharrow','→'));
+
+    const sel=el('select','matchsel');
+    const skip=el('option'); skip.value=''; skip.textContent="— don't import —"; sel.appendChild(skip);
+    opts.forEach(t=>{ const o=el('option'); o.value=t; o.textContent=t; sel.appendChild(o); });
+    let cur = s.template || '';
+    if(cur && !opts.includes(cur)){ const o=el('option'); o.value=cur; o.textContent=cur; sel.appendChild(o); }
+    sel.value = cur;
+    row.appendChild(sel);
+
+    const stat=el('span','matchstat');
+    const overridden = Object.prototype.hasOwnProperty.call(state.mapping, s.sheet);
+    if(!sel.value){ stat.textContent = overridden?'skipped':'not matched'; stat.classList.add(overridden?'':'warn'); }
+    else { stat.textContent = overridden?'manual':'auto'; stat.classList.add(overridden?'manual':'auto'); }
+    row.appendChild(stat);
+
+    sel.onchange=()=>{ state.mapping[s.sheet]=sel.value; runDry(); };
+    card.appendChild(row);
+  });
+  box.appendChild(card);
+}
+
+function previewCard(pv, body){
+  const wrap=el('div'); wrap.style.marginTop='14px';
+  if(!pv){ wrap.appendChild(el('div','small muted','(no preview available)')); return wrap; }
+  const c=pv.citation||{};
+  wrap.appendChild(el('h3','',' Dataset preview'));
+  const grid=el('div','pv'); grid.style.marginTop='8px';
+  grid.appendChild(kv('Title', c.title));
+  grid.appendChild(kv('Subjects', chips(c.subjects)));
+  grid.appendChild(kv('Depositor (submitter)', c.depositor));
+  grid.appendChild(kv('Admin / owner', c.owner || '—'));
+  grid.appendChild(kv('Author', chips((c.authors||[]).map(a=>a.name+(a.affiliation?' ('+a.affiliation+')':'')))));
+  grid.appendChild(kv('Contributors', chips((c.contributors||[]).map(a=>a.name+(a.affiliation?' ('+a.affiliation+')':'')))));
+  grid.appendChild(kv('Contacts', chips((c.contacts||[]).map(x=>[x.name,x.email].filter(Boolean).join(' · ')))));
+  const desc=kv('Description', c.description); desc.style.gridColumn='1 / -1'; grid.appendChild(desc);
+  wrap.appendChild(grid);
+
+  // dataset role assignments (first author -> Admin, others -> Contributor)
+  if(body && body.roleAssignments && body.roleAssignments.length){
+    const rd=el('div'); rd.style.marginTop='6px';
+    rd.appendChild(el('div','k','Dataset roles (author → account)'));
+    const ul=el('ul','errs');
+    body.roleAssignments.forEach(r=>{
+      const acct=r.account||'(no account resolved)';
+      const done=['ok','assigned','already'].includes(r.status);
+      const st = done ? '' : '  ⚠ '+(r.status||'not assigned');
+      ul.appendChild(el('li',null, r.author+' → '+acct+'  ['+r.role+']'+st));
+    });
+    rd.appendChild(ul); wrap.appendChild(rd);
+  }
+
+  const blks = pv.blocks||[];
+
+  // ---- completeness overview: single-colour donut + one summary label ----
+  if(blks.length){
+    const st = pv.stats||{};
+    wrap.appendChild(el('h3','','Completeness'));
+    const panel=el('div','stats');
+    const dw=el('div','donutwrap'); dw.appendChild(progressDonut(st.percent||0,120,14));
+    const ctr=el('div','donutctr');
+    ctr.appendChild(el('div','p',(st.percent||0)+'%'));   // whole-file completeness
+    ctr.appendChild(el('div','s','complete'));
+    dw.appendChild(ctr); panel.appendChild(dw);
+    const leg=el('div','legend');
+    const row=el('div','legrow');
+    const dot=el('span'); dot.style.cssText='width:11px;height:11px;border-radius:50%;background:var(--orange);flex:none;display:inline-block';
+    row.appendChild(dot);
+    row.appendChild(el('span','nm','Metadata template completeness'));
+    row.appendChild(el('span','fr',(st.totalFilled||0)+'/'+(st.totalFields||0)));
+    leg.appendChild(row);
+    panel.appendChild(leg); wrap.appendChild(panel);
+  }
+
+  // ---- collapsible per-sheet sections, each with a filled/total ring ----
+  blks.forEach(blk=>{
+    const box=el('div','blk collap');
+    const h=el('div','h');
+    const left=el('div','left');
+    left.appendChild(el('span','chev','▸'));
+    const nm=el('div'); nm.style.minWidth='0';
+    nm.appendChild(el('div',null,blk.template));
+    nm.appendChild(el('div','cnt',blk.rowCount+' row'+(blk.rowCount===1?'':'s')+' · '+blk.filled+'/'+blk.total+' fields filled'));
+    left.appendChild(nm); h.appendChild(left);
+    h.appendChild(ring(blk.filled, blk.total, 46, 6));
+    box.appendChild(h);
+    const body=el('div','body');
+    if(!blk.rows||!blk.rows.length){ const e=el('div'); e.style.padding='10px 14px';
+      e.appendChild(el('span','empty','no data rows')); body.appendChild(e); }
+    else{
+      const cols=[]; blk.rows.forEach(r=>Object.keys(r).forEach(k=>{if(!cols.includes(k))cols.push(k);}));
+      const tw=el('div','tblwrap'); const t=el('table'); const thead=el('thead'); const tr=el('tr');
+      cols.forEach(cn=>tr.appendChild(el('th',null,cn))); thead.appendChild(tr); t.appendChild(thead);
+      const tb=el('tbody'); blk.rows.forEach(r=>{const rr=el('tr'); cols.forEach(cn=>rr.appendChild(el('td',null,r[cn]!=null?r[cn]:'')));tb.appendChild(rr);});
+      t.appendChild(tb); tw.appendChild(t); body.appendChild(tw);
+    }
+    box.appendChild(body);
+    h.onclick=()=>box.classList.toggle('open');
+    wrap.appendChild(box);
+  });
+
+  if(body && body.corrections && body.corrections.length){
+    const d=el('div'); d.style.marginTop='12px';
+    d.appendChild(el('div','k','Value corrections ('+body.corrections.length+')'));
+    const ul=el('ul','errs'); body.corrections.forEach(c=>ul.appendChild(
+      el('li',null, (c.field.split('_').pop())+': “'+c.from+'” → “'+c.to+'”  ['+c.kind+']')));
+    d.appendChild(ul); wrap.appendChild(d);
+  }
+  if(body && body.warnings && body.warnings.length){
+    body.warnings.forEach(w=>{const b=banner('warn','!',w); b.style.marginTop='10px'; wrap.appendChild(b);});
+  }
+  return wrap;
+}
+
+$('#p2back').onclick=()=>setStep(1);
+$('#p2next').onclick=()=>{ prepStep3(); setStep(3); };
+
+/* ---------- step 3: submit ---------- */
+function prepStep3(){
+  $('#s3err').innerHTML='';
+  const c=(state.dry&&state.dry.preview&&state.dry.preview.citation)||{};
+  $('#s3coll').textContent=state.parent;
+  $('#s3title').textContent=c.title||'—';
+  $('#s3dep').textContent=c.depositor||'—';
+  $('#s3owner').textContent=c.owner||'—';
+}
+const pubSw=$('#pubSw');
+pubSw.onclick=()=>{
+  state.publish=!state.publish; pubSw.classList.toggle('on',state.publish);
+  $('#pubTitle').textContent = state.publish?'Publish (version 1.0)':'Save as draft';
+  $('#pubDesc').textContent = state.publish
+    ? 'The dataset is published immediately with the default license.'
+    : 'The dataset is created but not published. You can publish later.';
+};
+$('#p3back').onclick=()=>setStep(2);
+// publishing is irreversible -> confirm first; draft submits directly
+$('#submitBtn').onclick=()=>{ if(state.publish) $('#pubMask').classList.add('show'); else submit(false); };
+$('#pubCancel').onclick=()=>$('#pubMask').classList.remove('show');   // stay on the submit step
+$('#pubConfirm').onclick=()=>{ $('#pubMask').classList.remove('show'); submit(false); };
+
+async function submit(force){
+  const btn=$('#submitBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span> Submitting…';
+  $('#s3err').innerHTML='';
+  const fd=new FormData();
+  fd.append('file',state.file); fd.append('parent',state.parent);
+  fd.append('dry_run','false'); fd.append('publish', state.publish?'true':'false');
+  fd.append('force_update', force?'true':'false');
+  if(state.server) fd.append('server',state.server);
+  if(Object.keys(state.mapping).length) fd.append('mapping', JSON.stringify(state.mapping));
+  const {status,body}=await api('/dataverse/import',{method:'POST',body:fd});
+  btn.disabled=false; btn.textContent='Submit';
+  if(status===409 && body){ showDup(body); return; }
+  if((status===200||status===201) && body){ showResult(body); return; }
+  // error -> stay on this step so the user can retry without re-uploading
+  const msg = isServerDown(status) ? serverDownMsg(status)
+    : ('Import failed (HTTP '+status+'): '+
+       ((body && (body.errors ? body.errors.join('; ') : body.detail)) || 'unknown error'));
+  $('#s3err').appendChild(banner('bad','!',msg));
+}
+
+/* duplicate modal */
+function showDup(body){
+  $('#dupMsg').textContent = body.message || 'This dataset already exists.';
+  $('#dupMask').classList.add('show');
+}
+$('#dupCancel').onclick=()=>{ $('#dupMask').classList.remove('show'); resetAll(); };
+$('#dupForce').onclick=()=>{ $('#dupMask').classList.remove('show'); submit(true); };
+
+/* ---------- step 4: result ---------- */
+function showResult(body, errStatus, errBody){
+  state.lastResult = body || null;
+  setStep(4);
+  const grid=$('#resGrid'); grid.innerHTML=''; $('#urlWrap').classList.add('hidden');
+  if(!body){
+    $('#okIcon').textContent='✕'; $('#okIcon').style.color='var(--bad)';
+    $('#okIcon').style.background='var(--bad-bg)'; $('#okIcon').style.borderColor='var(--red-bd)';
+    $('#resTitle').textContent='Submission failed';
+    const errs=(errBody&&(errBody.errors||[errBody.detail||errBody.message]))||['Unknown error'];
+    $('#resSub').textContent='HTTP '+esc(errStatus)+' — '+esc(Array.isArray(errs)?errs.join('; '):errs);
+    return;
+  }
+  const published = body.published;
+  $('#okIcon').textContent='✓'; $('#okIcon').style.color='var(--good)';
+  $('#okIcon').style.background='var(--good-bg)'; $('#okIcon').style.borderColor='var(--green-bd)';
+  $('#resTitle').textContent = published ? 'Dataset published 🎉'
+    : (body.action==='updated' ? 'Dataset updated' : 'Dataset created (draft)');
+  $('#resSub').textContent = published
+    ? 'Your dataset is live (version 1.0). It can be accessed at the URL below.'
+    : 'Saved as a draft. Publish it later from Dataverse, or re-run with Publish on.';
+  grid.appendChild(kv('Status', body.status));
+  grid.appendChild(kv('Version', body.versionState||'—'));
+  grid.appendChild(kv('Dataset id', body.datasetId));
+  grid.appendChild(kv('Persistent id', body.persistentId));
+  grid.appendChild(kv('Owner (admin)', (body.owner||'—')+(body.ownerAssignment?'  ['+body.ownerAssignment+']':'')));
+  grid.appendChild(kv('License', body.license||'—'));
+  if(body.roleAssignments && body.roleAssignments.length){
+    const ra=body.roleAssignments.map(r=>{
+      const acct=r.account||'(no account)';
+      const done=['ok','assigned','already'].includes(r.status);
+      return r.author+' → '+acct+' ['+r.role+(done?'':'; '+(r.status||'not assigned'))+']';
+    });
+    const d=kv('Dataset roles', chips(ra)); d.style.gridColumn='1 / -1'; grid.appendChild(d);
+  }
+  if(body.ownerAssignment && String(body.ownerAssignment).startsWith('failed')){
+    const b=banner('warn','!','Owner admin grant did not apply: '+body.ownerAssignment);
+    b.style.gridColumn='1 / -1'; grid.appendChild(b);
+  }
+  if(body.url){
+    $('#urlWrap').classList.remove('hidden');
+    $('#resUrl').value=body.url; $('#openUrl').href=body.url;
+  }
+}
+$('#copyUrl').onclick=()=>{ $('#resUrl').select(); navigator.clipboard&&navigator.clipboard.writeText($('#resUrl').value); };
+$('#again').onclick=resetAll;
+
+function resetAll(){
+  state.file=null; state.dry=null; state.publish=false; state.lastResult=null; state.parent=''; state.mapping={};
+  $('#fileRow').classList.add('hidden'); $('#dryOut').classList.add('hidden'); $('#matchOut').classList.add('hidden');
+  fileInput.value=''; pubSw.classList.remove('on');
+  $('#pubTitle').textContent='Save as draft';
+  $('#pubDesc').textContent='The dataset is created but not published. You can publish later.';
+  setStep(1); initStep1();
+}
+
+/* ---------- boot ---------- */
+applyTheme();
+(async ()=>{
+  await loadAuth();
+  setStep(1);
+  const le=new URLSearchParams(location.search).get('login_error');
+  if(le) history.replaceState({},'',location.pathname);
+  if(le && !AUTH.authenticated){ showSignIn('Sign-in didn’t complete ('+le+'). Please try again.'); }
+  else { initStep1(); }
+})();
+</script>
+</body>
+</html>
