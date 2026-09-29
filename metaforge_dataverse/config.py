@@ -41,6 +41,12 @@ class Settings:
         self.dataverse_url: str = os.environ.get("DATAVERSE_URL", "https://134.95.195.250").rstrip("/")
         # Optional root collection to enumerate for the picker.
         self.root: str | None = (os.environ.get("DATAVERSE_ROOT") or "").strip() or None
+        # Dataverse role granted to the FIRST author on the created dataset. The
+        # main author is always declared with this role (not admin), so they can
+        # edit but not publish on their own -- publishing goes through the PI. If
+        # the target collection doesn't define this role, the importer falls back
+        # to the builtin 'contributor' (edit, no publish).
+        self.first_author_role: str = (os.environ.get("FIRST_AUTHOR_ROLE") or "project_phd").strip()
         # Self-signed local cert -> default to NOT verifying TLS.
         # Set DATAVERSE_INSECURE=false in front of a properly-certificated server.
         self.verify: bool = os.environ.get("DATAVERSE_INSECURE", "true").lower() not in ("true", "1", "yes")

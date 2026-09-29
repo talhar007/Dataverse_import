@@ -330,7 +330,7 @@
       <div><div class="k">Collection</div><div class="v mono" id="s3coll"></div></div>
       <div><div class="k">Dataset title</div><div class="v" id="s3title"></div></div>
       <div><div class="k">Depositor (you)</div><div class="v" id="s3dep"></div></div>
-      <div><div class="k">Owner (admin)</div><div class="v mono" id="s3owner"></div></div>
+      <div><div class="k">Main author</div><div class="v mono" id="s3owner"></div></div>
     </div>
     <div class="banner good" style="margin-top:14px"><span class="bi">✓</span>
       <div>Validation passed — ready to submit.</div></div>
@@ -343,6 +343,7 @@
         <div class="sw" id="pubSw"><div class="kn"></div></div>
         <span class="small muted">Publish</span></div>
     </div>
+    <div id="pubAuthInfo" style="margin-top:10px"></div>
 
     <div id="s3err" style="margin-top:12px"></div>
     <div class="actions">
@@ -384,6 +385,21 @@
     <div class="actions">
       <button class="btn ghost" id="pubCancel">Cancel</button>
       <button class="btn primary" id="pubConfirm">Continue &amp; publish</button>
+    </div>
+  </div>
+</div>
+
+<!-- Author-can't-publish -> review request modal -->
+<div class="mask" id="revMask">
+  <div class="modal">
+    <h3>You don’t have the right to publish</h3>
+    <div class="banner warn" style="margin:8px 0"><span class="bi">!</span>
+      <div id="revMsg"></div></div>
+    <div class="small muted">Send the request and the dataset is saved as a draft and submitted to the
+      PI for publication &amp; revision. Cancel to keep it as a draft only.</div>
+    <div class="actions">
+      <button class="btn ghost" id="revCancel">Cancel</button>
+      <button class="btn primary" id="revSend">Send request to PI</button>
     </div>
   </div>
 </div>
@@ -443,6 +459,8 @@ function progressDonut(pct,size,stroke){
 ['dv_token','dv_server','dv_root'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
 const state = { step:1, parent:'', file:null, dry:null, publish:false,
   mapping:{},              // sheet title -> chosen block template ('' = skip)
+  authorCanPublish:null,   // main author's right to publish here (from dry-run)
+  pendingReview:false,     // this submit is a Submit-for-Review to the PI
   token:'', server:'', root:'' };
 
 /* ---------- theme ---------- */
@@ -743,7 +761,7 @@ function previewCard(pv, body){
   grid.appendChild(kv('Title', c.title));
   grid.appendChild(kv('Subjects', chips(c.subjects)));
   grid.appendChild(kv('Depositor (submitter)', c.depositor));
-  grid.appendChild(kv('Admin / owner', c.owner || '—'));
+  grid.appendChild(kv('Main author', c.owner || '—'));
   grid.appendChild(kv('Author', chips((c.authors||[]).map(a=>a.name+(a.affiliation?' ('+a.affiliation+')':'')))));
   grid.appendChild(kv('Contributors', chips((c.contributors||[]).map(a=>a.name+(a.affiliation?' ('+a.affiliation+')':'')))));
   grid.appendChild(kv('Contacts', chips((c.contacts||[]).map(x=>[x.name,x.email].filter(Boolean).join(' · ')))));
@@ -830,6 +848,10 @@ $('#p2back').onclick=()=>setStep(1);
 $('#p2next').onclick=()=>{ prepStep3(); setStep(3); };
 
 /* ---------- step 3: submit ---------- */
+function reviewerNames(ap){
+  const rs=(ap&&ap.reviewers)||[];
+  return rs.map(r=>r.name||('@'+r.username)).join(', ') || 'the collection’s reviewers (PI)';
+}
 function prepStep3(){
   $('#s3err').innerHTML='';
   const c=(state.dry&&state.dry.preview&&state.dry.preview.citation)||{};
@@ -837,27 +859,72 @@ function prepStep3(){
   $('#s3title').textContent=c.title||'—';
   $('#s3dep').textContent=c.depositor||'—';
   $('#s3owner').textContent=c.owner||'—';
+  // Main-author publish right (drives the publish vs. review flow below).
+  const ap=(state.dry&&state.dry.authorPublish)||null;
+  state.authorCanPublish = ap ? (ap.canPublish!==false) : null;
+  const box=$('#pubAuthInfo'); box.innerHTML='';
+  if(ap){
+    const who = (ap.name||('@'+ap.username)) + (ap.roles&&ap.roles.length?(' — '+ap.roles.join(', ')):'');
+    if(ap.canPublish===false){
+      box.appendChild(banner('warn','!',
+        'Main author '+who+' cannot publish in this collection. Turning on “Publish” will send a '
+        +'publication & revision request to the PI ('+reviewerNames(ap)+') instead of publishing.'));
+    }else if(ap.canPublish===true){
+      box.appendChild(banner('good','✓','Main author '+who+' may publish this dataset directly.'));
+    }
+  }
+  applyPubLabels();
+}
+function applyPubLabels(){
+  const reviewMode = state.publish && state.authorCanPublish===false;
+  $('#pubTitle').textContent = !state.publish ? 'Save as draft'
+    : (reviewMode ? 'Request publication (via PI)' : 'Publish (version 1.0)');
+  $('#pubDesc').textContent = !state.publish
+    ? 'The dataset is created but not published. You can publish later.'
+    : (reviewMode
+        ? 'You cannot publish directly — a review request will be sent to the PI.'
+        : 'The dataset is published immediately with the default license.');
+  $('#submitBtn').textContent = reviewMode ? 'Submit' : 'Submit';
 }
 const pubSw=$('#pubSw');
 pubSw.onclick=()=>{
   state.publish=!state.publish; pubSw.classList.toggle('on',state.publish);
-  $('#pubTitle').textContent = state.publish?'Publish (version 1.0)':'Save as draft';
-  $('#pubDesc').textContent = state.publish
-    ? 'The dataset is published immediately with the default license.'
-    : 'The dataset is created but not published. You can publish later.';
+  applyPubLabels();
 };
 $('#p3back').onclick=()=>setStep(2);
-// publishing is irreversible -> confirm first; draft submits directly
-$('#submitBtn').onclick=()=>{ if(state.publish) $('#pubMask').classList.add('show'); else submit(false); };
+// Submit routing:
+//   * draft (publish off)                    -> submit directly
+//   * publish + author may publish           -> irreversible-publish confirm
+//   * publish + author may NOT publish       -> review-request-to-PI modal
+$('#submitBtn').onclick=()=>{
+  state.pendingReview=false;
+  if(!state.publish){ submit(false); return; }
+  if(state.authorCanPublish===false){ showReviewModal(); return; }
+  $('#pubMask').classList.add('show');
+};
 $('#pubCancel').onclick=()=>$('#pubMask').classList.remove('show');   // stay on the submit step
-$('#pubConfirm').onclick=()=>{ $('#pubMask').classList.remove('show'); submit(false); };
+$('#pubConfirm').onclick=()=>{ $('#pubMask').classList.remove('show'); state.pendingReview=false; submit(false); };
+
+function showReviewModal(){
+  const ap=(state.dry&&state.dry.authorPublish)||{};
+  $('#revMsg').innerHTML='';
+  const who=(ap.name||'The main author')+(ap.roles&&ap.roles.length?(' ('+ap.roles.join(', ')+')'):'');
+  $('#revMsg').textContent = who+' does not have permission to publish in this collection. '
+    +'The request for publication and revision will be sent to the PI: '+reviewerNames(ap)+'.';
+  $('#revMask').classList.add('show');
+}
+$('#revCancel').onclick=()=>$('#revMask').classList.remove('show');   // stay on the submit step
+$('#revSend').onclick=()=>{ $('#revMask').classList.remove('show'); state.pendingReview=true; submit(false); };
 
 async function submit(force){
   const btn=$('#submitBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span> Submitting…';
   $('#s3err').innerHTML='';
+  const review=state.pendingReview;
   const fd=new FormData();
   fd.append('file',state.file); fd.append('parent',state.parent);
-  fd.append('dry_run','false'); fd.append('publish', state.publish?'true':'false');
+  fd.append('dry_run','false');
+  fd.append('publish', (state.publish && !review)?'true':'false');
+  if(review) fd.append('submit_for_review','true');
   fd.append('force_update', force?'true':'false');
   if(state.server) fd.append('server',state.server);
   if(Object.keys(state.mapping).length) fd.append('mapping', JSON.stringify(state.mapping));
@@ -894,19 +961,42 @@ function showResult(body, errStatus, errBody){
     return;
   }
   const published = body.published;
-  $('#okIcon').textContent='✓'; $('#okIcon').style.color='var(--good)';
-  $('#okIcon').style.background='var(--good-bg)'; $('#okIcon').style.borderColor='var(--green-bd)';
-  $('#resTitle').textContent = published ? 'Dataset published 🎉'
+  const submitted = body.status==='submitted_for_review' || body.reviewSubmitted;
+  const reviewReq = (body.status==='draft_review_required' || body.reviewRequired) && !submitted;
+  if(reviewReq){
+    $('#okIcon').textContent='!'; $('#okIcon').style.color='var(--orange)';
+    $('#okIcon').style.background='var(--warn-bg)'; $('#okIcon').style.borderColor='var(--gold)';
+  }else{
+    $('#okIcon').textContent = submitted ? '📨' : '✓'; $('#okIcon').style.color='var(--good)';
+    $('#okIcon').style.background='var(--good-bg)'; $('#okIcon').style.borderColor='var(--green-bd)';
+  }
+  $('#resTitle').textContent = submitted ? 'Publication request sent to the PI'
+    : reviewReq ? 'Draft saved — PI approval needed'
+    : published ? 'Dataset published 🎉'
     : (body.action==='updated' ? 'Dataset updated' : 'Dataset created (draft)');
-  $('#resSub').textContent = published
-    ? 'Your dataset is live (version 1.0). It can be accessed at the URL below.'
-    : 'Saved as a draft. Publish it later from Dataverse, or re-run with Publish on.';
+  const ap=body.authorPublish||{};
+  $('#resSub').textContent = submitted
+    ? ('Your draft was submitted for review. The PI ('+reviewerNames(ap)+') has been notified to review and publish it.')
+    : reviewReq
+      ? ('You don’t have the right to publish here — send the request to the PI ('+reviewerNames(ap)+') to have it reviewed and published.')
+    : published
+      ? 'Your dataset is live (version 1.0). It can be accessed at the URL below.'
+      : 'Saved as a draft. Publish it later from Dataverse, or re-run with Publish on.';
   grid.appendChild(kv('Status', body.status));
   grid.appendChild(kv('Version', body.versionState||'—'));
   grid.appendChild(kv('Dataset id', body.datasetId));
   grid.appendChild(kv('Persistent id', body.persistentId));
-  grid.appendChild(kv('Owner (admin)', (body.owner||'—')+(body.ownerAssignment?'  ['+body.ownerAssignment+']':'')));
+  grid.appendChild(kv('Main author', (body.owner||'—')+(body.ownerAssignment?'  ['+body.ownerAssignment+']':'')));
   grid.appendChild(kv('License', body.license||'—'));
+  if(ap && ap.username){
+    const rt = ap.canPublish===true ? 'may publish' : (ap.canPublish===false ? 'cannot publish (needs PI)' : '—');
+    const d=kv('Main author', (ap.name||('@'+ap.username))
+      + (ap.roles&&ap.roles.length?('  ·  '+ap.roles.join(', ')):'')+'  ·  '+rt);
+    d.style.gridColumn='1 / -1'; grid.appendChild(d);
+    if(ap.canPublish===false){
+      const d2=kv('PI / reviewers', reviewerNames(ap)); d2.style.gridColumn='1 / -1'; grid.appendChild(d2);
+    }
+  }
   if(body.roleAssignments && body.roleAssignments.length){
     const ra=body.roleAssignments.map(r=>{
       const acct=r.account||'(no account)';
@@ -916,7 +1006,7 @@ function showResult(body, errStatus, errBody){
     const d=kv('Dataset roles', chips(ra)); d.style.gridColumn='1 / -1'; grid.appendChild(d);
   }
   if(body.ownerAssignment && String(body.ownerAssignment).startsWith('failed')){
-    const b=banner('warn','!','Owner admin grant did not apply: '+body.ownerAssignment);
+    const b=banner('warn','!','Main-author role grant did not apply: '+body.ownerAssignment);
     b.style.gridColumn='1 / -1'; grid.appendChild(b);
   }
   if(body.url){
@@ -929,7 +1019,9 @@ $('#again').onclick=resetAll;
 
 function resetAll(){
   state.file=null; state.dry=null; state.publish=false; state.lastResult=null; state.parent=''; state.mapping={};
+  state.authorCanPublish=null; state.pendingReview=false;
   $('#fileRow').classList.add('hidden'); $('#dryOut').classList.add('hidden'); $('#matchOut').classList.add('hidden');
+  const pai=$('#pubAuthInfo'); if(pai) pai.innerHTML='';
   fileInput.value=''; pubSw.classList.remove('on');
   $('#pubTitle').textContent='Save as draft';
   $('#pubDesc').textContent='The dataset is created but not published. You can publish later.';
