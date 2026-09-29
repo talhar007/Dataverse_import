@@ -859,11 +859,14 @@ function prepStep3(){
   $('#s3title').textContent=c.title||'—';
   $('#s3dep').textContent=c.depositor||'—';
   $('#s3owner').textContent=c.owner||'—';
-  // Main-author publish right (drives the publish vs. review flow below).
+  // Main-author publish right (drives the publish vs. review flow below). The
+  // gate is only meaningful when the server could VERIFY the author's role
+  // (needs the admin reader); otherwise we fail open and publish is attempted.
   const ap=(state.dry&&state.dry.authorPublish)||null;
-  state.authorCanPublish = ap ? (ap.canPublish!==false) : null;
+  const gate = !!(ap && ap.verified===true);
+  state.authorCanPublish = gate ? (ap.canPublish!==false) : true;
   const box=$('#pubAuthInfo'); box.innerHTML='';
-  if(ap){
+  if(gate){
     const who = (ap.name||('@'+ap.username)) + (ap.roles&&ap.roles.length?(' — '+ap.roles.join(', ')):'');
     if(ap.canPublish===false){
       box.appendChild(banner('warn','!',
@@ -989,11 +992,12 @@ function showResult(body, errStatus, errBody){
   grid.appendChild(kv('Main author', (body.owner||'—')+(body.ownerAssignment?'  ['+body.ownerAssignment+']':'')));
   grid.appendChild(kv('License', body.license||'—'));
   if(ap && ap.username){
-    const rt = ap.canPublish===true ? 'may publish' : (ap.canPublish===false ? 'cannot publish (needs PI)' : '—');
+    const gate = ap.verified===true;
+    const rt = !gate ? 'role not checked' : (ap.canPublish===true ? 'may publish' : 'cannot publish (needs PI)');
     const d=kv('Main author', (ap.name||('@'+ap.username))
       + (ap.roles&&ap.roles.length?('  ·  '+ap.roles.join(', ')):'')+'  ·  '+rt);
     d.style.gridColumn='1 / -1'; grid.appendChild(d);
-    if(ap.canPublish===false){
+    if(gate && ap.canPublish===false){
       const d2=kv('PI / reviewers', reviewerNames(ap)); d2.style.gridColumn='1 / -1'; grid.appendChild(d2);
     }
   }

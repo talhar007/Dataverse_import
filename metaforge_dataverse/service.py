@@ -403,15 +403,24 @@ def import_workbook(
     #     governed by the FIRST author's Dataverse role at this collection, not the
     #     submitter's. Resolve it up front so the check reports on every path
     #     (including dry-run) and drives the publish/review gate at the end.
+    # Reader for the role model behind the publish gate. Reading ANOTHER user's
+    # role/group/permissions requires superuser, which the request credential may
+    # not have (pure per-user SSO). Use the configured admin token for these
+    # READ-ONLY lookups when present; imports still run under `client`.
+    role_reader = client
+    if settings.admin_token and settings.admin_token != client.token:
+        role_reader = DataverseClient(client.base_url, settings.admin_token,
+                                      verify=client.verify, timeout=client.timeout)
+
     main_author = authors[0] if authors else None
     main_username = (main_author or {}).get("username", "").strip().lstrip("@")
     capability = None
     if main_username:
         try:
-            capability = client.resolve_publish_capability(parent, main_username)
+            capability = role_reader.resolve_publish_capability(parent, main_username)
         except DataverseError:
             capability = None
-    author_publish = _author_publish_info(client, main_author, capability)
+    author_publish = _author_publish_info(role_reader, main_author, capability)
 
     # Draft gate: the main author must be permitted to add datasets here. If we
     # could VERIFY (superuser read) that they cannot, refuse -- a dataset must not
@@ -476,7 +485,7 @@ def import_workbook(
     # come from each author's own Username/Email. Where the configured role is not
     # defined on this collection (e.g. CRC1607 uses different role names), fall back
     # to the builtin 'contributor' (edit, no publish) so the grant still applies.
-    avail_roles = {r.get("alias") for r in client.get_dataverse_roles(parent)}
+    avail_roles = {r.get("alias") for r in role_reader.get_dataverse_roles(parent)}
     first_role = settings.first_author_role if settings.first_author_role in avail_roles else "contributor"
     if first_role != settings.first_author_role:
         build.warnings.append(
@@ -557,6 +566,11 @@ def import_workbook(
     #      * publish + author may NOT publish -> leave a DRAFT and flag that a
     #        review request to the PI is required (the UI prompts Send/Cancel);
     #      * otherwise -> leave a DRAFT.
+    # The gate is only ACTIVE when we could actually verify the author's role
+    # (needs the admin/superuser reader). When it isn't (no admin token, or the
+    # read failed), fail OPEN: attempt the publish and let Dataverse enforce the
+    # request user's own permissions -- never silently force everything to review.
+    gate_active = bool(capability and capability.get("verified"))
     author_can_publish = bool(capability and capability.get("canPublish"))
     reviewer_names = ", ".join(r["name"] for r in (author_publish or {}).get("reviewers", [])) \
         or "the collection's reviewers (PI)"
@@ -572,7 +586,7 @@ def import_workbook(
         except DataverseError as e:
             result.publish_error = str(e)
             result.warnings.append(f"could not submit the dataset for review: {e}")
-    elif publish and author_can_publish:
+    elif publish and (author_can_publish or not gate_active):
         try:
             pdata = client.publish_dataset(result.persistent_id, release_type="major")
             result.published = True
@@ -583,9 +597,9 @@ def import_workbook(
             result.warnings.append(
                 f"dataset {result.action} but publish failed; it remains a DRAFT "
                 "(commonly because the parent collection itself is unpublished)")
-    elif publish and not author_can_publish:
-        # The main author's role does not permit publishing: keep the DRAFT and
-        # tell the caller a review request to the PI is required.
+    elif publish:
+        # Gate is active and the main author's role does not permit publishing:
+        # keep the DRAFT and tell the caller a review request to the PI is required.
         result.review_required = True
         if author_publish:
             author_publish["reviewRequired"] = True

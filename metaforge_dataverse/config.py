@@ -41,6 +41,13 @@ class Settings:
         self.dataverse_url: str = os.environ.get("DATAVERSE_URL", "https://134.95.195.250").rstrip("/")
         # Optional root collection to enumerate for the picker.
         self.root: str | None = (os.environ.get("DATAVERSE_ROOT") or "").strip() or None
+        # Superuser API token used ONLY for the read-only role/permission lookups
+        # behind the publish gate (reading the MAIN AUTHOR's role requires
+        # superuser). Imports/creates/publishes still run under the request's own
+        # credential (the signed-in user's bearer, or the service token) -- this
+        # token is never used to write. Leave empty to disable the gate: it then
+        # fails open to Dataverse's own permission enforcement.
+        self.admin_token: str = os.environ.get("DATAVERSE_ADMIN_TOKEN", "").strip()
         # Dataverse role granted to the FIRST author on the created dataset. The
         # main author is always declared with this role (not admin), so they can
         # edit but not publish on their own -- publishing goes through the PI. If
