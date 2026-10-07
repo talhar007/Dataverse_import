@@ -106,46 +106,19 @@ class DataverseClient:
             raise DataverseError(f"could not reach Dataverse at {self.base_url}: {e}", 504)
 
     # ---- schema (cached per collection) --------------------------------
-    def _fetch_blocks(self, ident) -> dict:
-        """The metadata blocks ENABLED on one collection's add-dataset form."""
-        url = f"{self.base_url}/api/dataverses/{ident}/metadatablocks"
-        r = self._send("GET", url, params={"returnDatasetFieldTypes": "true"})
-        if not r.ok:
-            raise DataverseError(f"could not read metadata blocks for {ident!r}: "
-                                 f"HTTP {r.status_code} {r.text[:200]}", r.status_code)
-        return _parse_blocks(r.json()["data"])
-
-    def get_blocks(self, parent: str, refresh: bool = False,
-                   include_ancestors: bool = False) -> dict:
-        """Blocks offered for `parent`. With `include_ancestors`, also merge in the
-        blocks enabled higher up the CRC hierarchy (but NOT the installation root's
-        generic blocks): a sub-dataverse then exposes the same metadata categories
-        as its CRC, and Dataverse accepts those blocks in a dataset created in the
-        child. Merged-in blocks are tagged `inherited=True` so auto-matching still
-        prefers the collection's own blocks; they are offered as manual choices."""
+    def get_blocks(self, parent: str, refresh: bool = False) -> dict:
         now = time.time()
-        key = (self.base_url, parent, include_ancestors)
+        key = (self.base_url, parent)
         with _CACHE_LOCK:
             hit = _SCHEMA_CACHE.get(key)
             if hit and not refresh and (now - hit[0]) < self.schema_ttl:
                 return hit[1]
-        schema = self._fetch_blocks(parent)
-        if include_ancestors:
-            try:
-                chain = self.dataverse_ancestors(parent)
-            except DataverseError:
-                chain = []
-            for anc in chain[1:]:                      # ancestors (chain[0] is self)
-                if anc.get("ownerId") is None:
-                    continue                            # skip the installation root
-                try:
-                    anc_schema = self._fetch_blocks(anc.get("id"))
-                except DataverseError:
-                    continue
-                for dn, b in anc_schema.items():
-                    if dn not in schema:
-                        b = dict(b); b["inherited"] = True
-                        schema[dn] = b
+        url = f"{self.base_url}/api/dataverses/{parent}/metadatablocks"
+        r = self._send("GET", url, params={"returnDatasetFieldTypes": "true"})
+        if not r.ok:
+            raise DataverseError(f"could not read metadata blocks for {parent!r}: "
+                                 f"HTTP {r.status_code} {r.text[:200]}", r.status_code)
+        schema = _parse_blocks(r.json()["data"])
         with _CACHE_LOCK:
             _SCHEMA_CACHE[key] = (now, schema)
         return schema

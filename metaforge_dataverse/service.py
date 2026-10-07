@@ -224,10 +224,6 @@ def _build_matching(parsed, schema: dict, sheet_map=None) -> dict:
     """
     schema_keys = set(schema.keys())
     available = sorted(dn for dn, b in schema.items() if b.get("blockName") != "citation")
-    # blocks offered but inherited from an ancestor CRC (not on this collection's
-    # own add-dataset form) -- the UI marks these so the choice is clear.
-    inherited = sorted(dn for dn, b in schema.items()
-                       if b.get("inherited") and b.get("blockName") != "citation")
     sheets = []
     for sheet, entries in parsed.meta_sheets.items():
         auto, ov = mapping.match_block(mapping._sheet_labels(parsed, sheet, entries), schema)
@@ -244,7 +240,7 @@ def _build_matching(parsed, schema: dict, sheet_map=None) -> dict:
             "auto": auto,
             "template": chosen,
         })
-    return {"sheets": sheets, "available": available, "inheritedBlocks": inherited,
+    return {"sheets": sheets, "available": available,
             "collectionBlocks": sorted(schema_keys)}
 
 
@@ -400,7 +396,7 @@ def import_workbook(
     # 2) live schema for the target collection (cached). Fetched before the
     #    required-field check so the sheet<->block matching (which the UI needs
     #    even on a validation failure) can be reported on every path below.
-    schema = client.get_blocks(parent, refresh=refresh_schema, include_ancestors=True)
+    schema = client.get_blocks(parent, refresh=refresh_schema)
     matching = _build_matching(parsed, schema, sheet_map)
 
     # 1c-bis) MAIN-AUTHOR publish capability: publishing (and even drafting) is
