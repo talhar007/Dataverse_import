@@ -669,6 +669,9 @@ async function runDry(){
   $('#dryLoading').classList.remove('hidden');
   const fd=new FormData();
   fd.append('file',state.file); fd.append('parent',state.parent); fd.append('dry_run','true');
+  // Always read the collection's metadata blocks fresh, so blocks the admin just
+  // added/removed in Dataverse show up in the matcher immediately (no stale cache).
+  fd.append('refresh_schema','true');
   if(state.server) fd.append('server',state.server);
   if(Object.keys(state.mapping).length) fd.append('mapping', JSON.stringify(state.mapping));
   const {ok,status,body}=await api('/dataverse/import',{method:'POST',body:fd});
@@ -719,7 +722,12 @@ function renderMatching(m){
   box.innerHTML=''; box.classList.remove('hidden');
   const opts = m.available||[];
   const card=el('div','matchcard');
-  card.appendChild(el('h3','','Match sheets to metadata blocks'));
+  const hdr=el('div'); hdr.style.cssText='display:flex;justify-content:space-between;align-items:center;gap:10px';
+  hdr.appendChild(el('h3','','Match sheets to metadata blocks'));
+  const refr=el('button','btn ghost','↻ Refresh blocks'); refr.style.cssText='flex:none;padding:4px 10px;font-size:12px';
+  refr.title='Re-read this collection’s metadata blocks from Dataverse';
+  refr.onclick=runDry;
+  hdr.appendChild(refr); card.appendChild(hdr);
   card.appendChild(el('div','sub','Each Excel sheet on the left is imported into the metadata block you '
     +'pick on the right, in '+esc(state.parent)+'. Names need not be identical — fix any wrong match, '
     +'or choose “don’t import” to skip a sheet.'));

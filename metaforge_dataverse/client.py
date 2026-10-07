@@ -43,6 +43,19 @@ _GROUPS_CACHE: dict[tuple[str, str], list] = {}
 _CACHE_LOCK = threading.Lock()
 
 
+def _clean_validation_message(msg: str) -> str:
+    """Strip the Java/everit schema noise out of a validateDatasetJson failure
+    message so the UI shows just the human parts (e.g. 'required key [...] not
+    found')."""
+    msg = re.sub(r"org\.everit\.json\.schema\.\w+:\s*", " | ", msg)
+    msg = re.sub(r"#/\S*?:\s*", "", msg)   # JSON-pointer path prefixes
+    msg = re.sub(r"#:\s*", "", msg)
+    msg = re.sub(r"\s*\|\s*(\|\s*)+", " | ", msg)
+    msg = re.sub(r":\s*\|", ":", msg)
+    msg = re.sub(r"\s{2,}", " ", msg).strip().strip("|").strip()
+    return msg
+
+
 def _parse_blocks(data: list[dict]) -> dict[str, dict]:
     """API metadatablocks response -> {template displayName: {blockName, fields}}.
 
@@ -148,9 +161,15 @@ class DataverseClient:
             body = r.json()
         except ValueError:
             body = {"status": "ERROR", "message": r.text[:500]}
-        ok = r.ok and body.get("status") == "OK"
         msg = (body.get("data") or {}).get("message") or body.get("message") or r.text[:500]
-        return ValidationResult(ok=ok, message=msg, raw=body)
+        # NOTE: validateDatasetJson returns HTTP 200 + status "OK" even when the
+        # JSON is INVALID, carrying the real verdict in the message. So a status of
+        # OK is NOT enough -- treat an explicit failure message as invalid.
+        status_ok = r.ok and body.get("status") == "OK"
+        failed = ("failed validation" in msg.lower()) or ("not valid" in msg.lower())
+        if failed:
+            msg = _clean_validation_message(msg)
+        return ValidationResult(ok=status_ok and not failed, message=msg, raw=body)
 
     # ---- create ---------------------------------------------------------
     def create_dataset(self, parent: str, payload: dict) -> dict:
