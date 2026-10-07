@@ -397,18 +397,14 @@
 </div>
 
 
-<!-- Publish confirmation modal -->
+<!-- Submit confirmation modal (publish + PI-review summary, built dynamically) -->
 <div class="mask" id="pubMask">
   <div class="modal">
-    <h3>Publish these datasets?</h3>
-    <div class="banner warn" style="margin:8px 0"><span class="bi">!</span>
-      <div>You are about to <b>publish</b> the files you set to Publish. Publishing is permanent — a
-        published version <b>cannot be un-published or reverted</b>. To keep them editable, cancel and
-        choose <b>Draft</b> instead. (Files whose main author can’t publish are sent to the PI for review,
-        not published.)</div></div>
+    <h3 id="pubMaskTitle">Submit these files?</h3>
+    <div id="pubMaskBody" style="margin:8px 0"></div>
     <div class="actions">
       <button class="btn ghost" id="pubCancel">Cancel</button>
-      <button class="btn primary" id="pubConfirm">Continue &amp; publish</button>
+      <button class="btn primary" id="pubConfirm">Submit all</button>
     </div>
   </div>
 </div>
@@ -960,12 +956,32 @@ function updateS3Count(){
   $('#s3count').textContent = valid.length+' ready — '+dr+' draft, '+pub+' publish'+(rev?(', '+rev+' PI review'):'');
 }
 $('#p3back').onclick=()=>setStep(2);
-// publishing is irreversible -> confirm only if at least one file will ACTUALLY
-// publish (files routed to PI review or kept as drafts don't need the warning)
+// Confirm before anything irreversible or routed to the PI: publishing can't be
+// undone, and a PI-review request is sent on the author's behalf. Draft-only
+// batches submit directly.
 $('#submitBtn').onclick=()=>{
-  if(state.files.some(f=>f.status==='valid' && f.publish && f._canPub!==false)) $('#pubMask').classList.add('show');
+  const valid=state.files.filter(f=>f.status==='valid');
+  const pub=valid.filter(f=>f.publish && f._canPub!==false);
+  const rev=valid.filter(f=>f.publish && f._canPub===false);
+  if(pub.length || rev.length) showSubmitConfirm(pub, rev);
   else submitAll();
 };
+function showSubmitConfirm(pub, rev){
+  const body=$('#pubMaskBody'); body.innerHTML='';
+  if(pub.length){
+    body.appendChild(banner('warn','!','You are about to publish '+pub.length+' file'
+      +(pub.length===1?'':'s')+'. Publishing is permanent — a published version cannot be un-published '
+      +'or reverted.'));
+  }
+  if(rev.length){
+    const names=rev.map(f=>(f._ap&&f._ap.name?f._ap.name:f.name)).join(', ');
+    body.appendChild(banner('warn','!', rev.length+' file'+(rev.length===1?'':'s')
+      +' whose main author can’t publish will be sent to the PI for publication & revision — '+names+'.'));
+  }
+  $('#pubMaskTitle').textContent = pub.length ? (rev.length?'Publish & request PI review?':'Publish & submit?')
+                                             : 'Send request to the PI?';
+  $('#pubMask').classList.add('show');
+}
 $('#pubCancel').onclick=()=>$('#pubMask').classList.remove('show');
 $('#pubConfirm').onclick=()=>{ $('#pubMask').classList.remove('show'); submitAll(); };
 
@@ -1105,6 +1121,9 @@ function resultGrid(body){
     const d=kv('Publish right', (ap.name||('@'+ap.username))
       +(ap.roles&&ap.roles.length?('  ·  '+ap.roles.join(', ')):'')+'  ·  '+rt);
     d.style.gridColumn='1 / -1'; grid.appendChild(d);
+    if(gate && ap.canPublish===false){
+      const d2=kv('PI / reviewers', reviewerNames(ap)); d2.style.gridColumn='1 / -1'; grid.appendChild(d2);
+    }
   }
   wrap.appendChild(grid);
   if(body.url){
