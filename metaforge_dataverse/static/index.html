@@ -718,11 +718,13 @@ function renderMatching(m){
   if(!m || !Array.isArray(m.sheets) || !m.sheets.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
   box.innerHTML=''; box.classList.remove('hidden');
   const opts = m.available||[];
+  const inh = new Set(m.inheritedBlocks||[]);
   const card=el('div','matchcard');
   card.appendChild(el('h3','','Match sheets to metadata blocks'));
   card.appendChild(el('div','sub','Each Excel sheet on the left is imported into the metadata block you '
     +'pick on the right, in '+esc(state.parent)+'. Names need not be identical — fix any wrong match, '
-    +'or choose “don’t import” to skip a sheet.'));
+    +'or choose “don’t import” to skip a sheet.'
+    +(inh.size?' Blocks marked “(from CRC)” aren’t on this sub-dataverse’s own form but are available from its CRC and accepted here.':'')));
   m.sheets.forEach(s=>{
     const row=el('div','matchrow');
     const left=el('div','matchsheet');
@@ -734,7 +736,7 @@ function renderMatching(m){
 
     const sel=el('select','matchsel');
     const skip=el('option'); skip.value=''; skip.textContent="— don't import —"; sel.appendChild(skip);
-    opts.forEach(t=>{ const o=el('option'); o.value=t; o.textContent=t; sel.appendChild(o); });
+    opts.forEach(t=>{ const o=el('option'); o.value=t; o.textContent=t+(inh.has(t)?'  (from CRC)':''); sel.appendChild(o); });
     let cur = s.template || '';
     if(cur && !opts.includes(cur)){ const o=el('option'); o.value=cur; o.textContent=cur; sel.appendChild(o); }
     sel.value = cur;

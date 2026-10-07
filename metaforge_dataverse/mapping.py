@@ -105,11 +105,14 @@ def _sheet_labels(parsed, sheet: str, entries: list) -> set:
 
 
 def match_block(sheet_labels: set, schema: dict) -> tuple:
-    """Pick the target block whose field titles best cover the sheet's labels.
+    """Pick the block whose field titles best cover the sheet's labels. Only the
+    collection's OWN blocks are auto-matched; blocks inherited from an ancestor
+    CRC (schema entries tagged `inherited`) are offered for MANUAL selection but
+    never auto-chosen, so adding them never changes an existing auto-match.
     Returns (displayName, overlap_count); (None, 0) if nothing overlaps."""
     best, best_ov = None, 0
     for dn, sblock in schema.items():
-        if sblock.get("blockName") == "citation":
+        if sblock.get("blockName") == "citation" or sblock.get("inherited"):
             continue
         ov = len(sheet_labels & set(_block_titles(sblock).keys()))
         if ov > best_ov:
