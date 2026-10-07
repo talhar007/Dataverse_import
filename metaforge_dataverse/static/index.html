@@ -402,9 +402,10 @@
   <div class="modal">
     <h3>Publish these datasets?</h3>
     <div class="banner warn" style="margin:8px 0"><span class="bi">!</span>
-      <div>You are about to <b>publish</b> every valid file in this batch. Publishing is permanent — a
+      <div>You are about to <b>publish</b> the files you set to Publish. Publishing is permanent — a
         published version <b>cannot be un-published or reverted</b>. To keep them editable, cancel and
-        choose <b>Draft</b> instead.</div></div>
+        choose <b>Draft</b> instead. (Files whose main author can’t publish are sent to the PI for review,
+        not published.)</div></div>
     <div class="actions">
       <button class="btn ghost" id="pubCancel">Cancel</button>
       <button class="btn primary" id="pubConfirm">Continue &amp; publish</button>
@@ -669,6 +670,8 @@ async function runDryFor(entry){
   entry.status='validating'; renderFilesList();
   const fd=new FormData();
   fd.append('file',entry.file); fd.append('parent',state.parent); fd.append('dry_run','true');
+  // Read the collection's blocks fresh so newly added/removed blocks show up now.
+  fd.append('refresh_schema','true');
   if(Object.keys(entry.mapping).length) fd.append('mapping', JSON.stringify(entry.mapping));
   const {status,body}=await api('/dataverse/import',{method:'POST',body:fd});
   entry.dryStatus=status; entry.dryBody=body;
@@ -747,13 +750,26 @@ function kv(k,v){ const w=el('div'); w.appendChild(el('div','k',k)); const d=el(
   if(v instanceof Node) d.appendChild(v); else d.textContent=(v==null||v==='')?'—':v; w.appendChild(d); return w; }
 function chips(arr){ const w=el('div'); (arr||[]).forEach(x=>w.appendChild(el('span','chip',x)));
   if(!arr||!arr.length) w.appendChild(el('span','empty','none')); return w; }
+function reviewerNames(ap){
+  const rs=(ap&&ap.reviewers)||[];
+  return rs.map(r=>r.name||('@'+r.username)).join(', ') || 'the collection’s reviewers (PI)';
+}
+// Whether the file's MAIN AUTHOR may publish. The gate is only meaningful when
+// the author's role could be VERIFIED (needs the admin reader); otherwise we
+// fail open (publish is attempted and Dataverse enforces the user's own rights).
+function authorCanPublish(ap){ return (ap && ap.verified===true) ? (ap.canPublish!==false) : true; }
 
 /* ---------- per-file sheet <-> metadata-block matcher (step 2) ---------- */
 function fileMatching(entry, m){
   if(!m || !Array.isArray(m.sheets) || !m.sheets.length) return null;
   const opts = m.available||[];
   const card=el('div','matchcard');
-  card.appendChild(el('h3','','Match sheets to metadata blocks'));
+  const hdr=el('div'); hdr.style.cssText='display:flex;justify-content:space-between;align-items:center;gap:10px';
+  hdr.appendChild(el('h3','','Match sheets to metadata blocks'));
+  const refr=el('button','btn ghost','↻ Refresh blocks'); refr.style.cssText='flex:none;padding:4px 10px;font-size:12px';
+  refr.title='Re-read this collection’s metadata blocks from Dataverse';
+  refr.onclick=(e)=>{ e.stopPropagation(); runDryFor(entry); };
+  hdr.appendChild(refr); card.appendChild(hdr);
   card.appendChild(el('div','sub','Each Excel sheet is imported into the metadata block you pick, in '
     +esc(state.parent)+'. Names need not be identical — fix any wrong match, or choose “don’t import” to skip a sheet.'));
   m.sheets.forEach(s=>{
@@ -794,12 +810,23 @@ function previewCard(pv, body){
   grid.appendChild(kv('Title', c.title));
   grid.appendChild(kv('Subjects', chips(c.subjects)));
   grid.appendChild(kv('Depositor (submitter)', c.depositor));
-  grid.appendChild(kv('Admin / owner', c.owner || '—'));
+  grid.appendChild(kv('Main author', c.owner || '—'));
   grid.appendChild(kv('Author', chips((c.authors||[]).map(a=>a.name+(a.affiliation?' ('+a.affiliation+')':'')))));
   grid.appendChild(kv('Contributors', chips((c.contributors||[]).map(a=>a.name+(a.affiliation?' ('+a.affiliation+')':'')))));
   grid.appendChild(kv('Contacts', chips((c.contacts||[]).map(x=>[x.name,x.email].filter(Boolean).join(' · ')))));
   const desc=kv('Description', c.description); desc.style.gridColumn='1 / -1'; grid.appendChild(desc);
   wrap.appendChild(grid);
+
+  // main-author publish right (from the role gate) — only when it was verified
+  const ap=body&&body.authorPublish;
+  if(ap && ap.verified===true){
+    const who=(ap.name||('@'+ap.username))+(ap.roles&&ap.roles.length?(' — '+ap.roles.join(', ')):'');
+    if(ap.canPublish===false)
+      wrap.appendChild(banner('warn','!','Main author '+who+' cannot publish here. Setting this file to '
+        +'“Publish” will send a publication & revision request to the PI ('+reviewerNames(ap)+').'));
+    else if(ap.canPublish===true)
+      wrap.appendChild(banner('good','✓','Main author '+who+' may publish this dataset directly.'));
+  }
 
   // dataset role assignments (first author -> Admin, others -> Contributor)
   if(body && body.roleAssignments && body.roleAssignments.length){
@@ -894,17 +921,25 @@ function prepStep3(){
   const listWrap=$('#s3files'); listWrap.innerHTML='';
   valid.forEach(f=>{
     const cit=(f.dryBody&&f.dryBody.preview&&f.dryBody.preview.citation)||{};
+    const ap=f.dryBody&&f.dryBody.authorPublish;
+    f._ap=ap; f._canPub=authorCanPublish(ap);        // drives review routing on submit
     const rowd=el('div','s3frow');
     const left=el('div','s3fleft');
     left.appendChild(el('div','s3fn', f.name));
     left.appendChild(el('div','s3ft', cit.title||'(untitled)'));
+    if(ap && ap.verified===true && ap.canPublish===false){
+      const note=el('div','s3ft'); note.style.color='var(--orange)';
+      note.textContent='⚠ '+(ap.name||'main author')+' can’t publish — “Request (PI)” sends it to the PI ('+reviewerNames(ap)+')';
+      left.appendChild(note);
+    }
     rowd.appendChild(left);
-    // per-file draft/publish toggle
+    // per-file draft/publish toggle (Publish becomes "Request (PI)" when the
+    // file's main author isn't allowed to publish)
     const tog=el('div','s3ftoggle');
     const draftL=el('span','s3side'+(f.publish?'':' cur'),'Draft');
     const sw=el('div','sw'+(f.publish?' on':'')); sw.appendChild(el('div','kn'));
-    const pubL=el('span','s3side'+(f.publish?' cur':''),'Publish');
-    sw.title='Draft or publish this file';
+    const pubL=el('span','s3side'+(f.publish?' cur':''), f._canPub?'Publish':'Request (PI)');
+    sw.title = f._canPub ? 'Draft or publish this file' : 'Draft, or request PI review for this file';
     sw.onclick=()=>{
       f.publish=!f.publish;
       sw.classList.toggle('on',f.publish);
@@ -919,13 +954,16 @@ function prepStep3(){
 }
 function updateS3Count(){
   const valid=state.files.filter(f=>f.status==='valid');
-  const pub=valid.filter(f=>f.publish).length, dr=valid.length-pub;
-  $('#s3count').textContent = valid.length+' ready — '+dr+' draft, '+pub+' publish';
+  const dr=valid.filter(f=>!f.publish).length;
+  const rev=valid.filter(f=>f.publish && f._canPub===false).length;
+  const pub=valid.filter(f=>f.publish && f._canPub!==false).length;
+  $('#s3count').textContent = valid.length+' ready — '+dr+' draft, '+pub+' publish'+(rev?(', '+rev+' PI review'):'');
 }
 $('#p3back').onclick=()=>setStep(2);
-// publishing is irreversible -> confirm if ANY file is set to Publish; else submit directly
+// publishing is irreversible -> confirm only if at least one file will ACTUALLY
+// publish (files routed to PI review or kept as drafts don't need the warning)
 $('#submitBtn').onclick=()=>{
-  if(state.files.some(f=>f.status==='valid' && f.publish)) $('#pubMask').classList.add('show');
+  if(state.files.some(f=>f.status==='valid' && f.publish && f._canPub!==false)) $('#pubMask').classList.add('show');
   else submitAll();
 };
 $('#pubCancel').onclick=()=>$('#pubMask').classList.remove('show');
@@ -947,7 +985,12 @@ async function submitFile(entry, force){
   entry.submitStatus='submitting'; renderResults();
   const fd=new FormData();
   fd.append('file',entry.file); fd.append('parent',state.parent);
-  fd.append('dry_run','false'); fd.append('publish', entry.publish?'true':'false');   // per-file
+  // When this file is set to Publish but its main author can't publish, send it
+  // for PI review instead of publishing (the backend also guards this).
+  const review = entry.publish && entry._canPub===false;
+  fd.append('dry_run','false');
+  fd.append('publish', (entry.publish && !review)?'true':'false');   // per-file
+  if(review) fd.append('submit_for_review','true');
   fd.append('force_update', force?'true':'false');
   if(Object.keys(entry.mapping).length) fd.append('mapping', JSON.stringify(entry.mapping));
   const {status,body}=await api('/dataverse/import',{method:'POST',body:fd});
@@ -1000,7 +1043,11 @@ function resultRow(entry){
 function resultShort(entry){
   const b=entry.resultBody, s=entry.submitStatus;
   if(s==='submitting') return 'importing…';
-  if(s==='success') return b.published?'published':(b.action==='updated'?'updated':'created (draft)');
+  if(s==='success'){
+    if(b.status==='submitted_for_review' || b.reviewSubmitted) return 'sent to PI for review';
+    if(b.status==='draft_review_required' || b.reviewRequired) return 'draft — needs PI approval';
+    return b.published?'published':(b.action==='updated'?'updated':'created (draft)');
+  }
   if(s==='duplicate') return 'duplicate — needs confirmation';
   if(entry.status!=='valid') return 'validation failed';
   return 'failed (HTTP '+(entry.resultHttp||'?')+')';
@@ -1031,20 +1078,33 @@ function resultDetail(entry){
 function resultGrid(body){
   const wrap=el('div');
   const published=body.published;
-  wrap.appendChild(banner('good','✓', published?'Published (version 1.0).'
+  const submitted=body.status==='submitted_for_review'||body.reviewSubmitted;
+  const reviewReq=(body.status==='draft_review_required'||body.reviewRequired)&&!submitted;
+  const ap=body.authorPublish||{};
+  wrap.appendChild(banner(reviewReq?'warn':'good', reviewReq?'!':(submitted?'📨':'✓'),
+    submitted ? ('Review request sent to the PI ('+reviewerNames(ap)+').')
+    : reviewReq ? ((ap.name||'The main author')+' can’t publish here — saved as a draft; send the request to the PI ('+reviewerNames(ap)+').')
+    : published ? 'Published (version 1.0).'
     : (body.action==='updated'?'Existing dataset updated (draft).':'Created as a draft.')));
   const grid=el('div','pv'); grid.style.marginTop='10px';
   grid.appendChild(kv('Status', body.status));
   grid.appendChild(kv('Version', body.versionState||'—'));
   grid.appendChild(kv('Dataset id', body.datasetId));
   grid.appendChild(kv('Persistent id', body.persistentId));
-  grid.appendChild(kv('Owner (admin)', body.owner||'—'));
+  grid.appendChild(kv('Main author', body.owner||'—'));
   grid.appendChild(kv('License', body.license||'—'));
   if(body.roleAssignments && body.roleAssignments.length){
     const ra=body.roleAssignments.map(r=>{ const acct=r.account||'(no account)';
       const done=['ok','assigned','already'].includes(r.status);
       return r.author+' → '+acct+' ['+r.role+(done?'':'; '+(r.status||'not assigned'))+']'; });
     const d=kv('Dataset roles', chips(ra)); d.style.gridColumn='1 / -1'; grid.appendChild(d);
+  }
+  if(ap && ap.username){
+    const gate=ap.verified===true;
+    const rt=!gate?'role not checked':(ap.canPublish===true?'may publish':'cannot publish (needs PI)');
+    const d=kv('Publish right', (ap.name||('@'+ap.username))
+      +(ap.roles&&ap.roles.length?('  ·  '+ap.roles.join(', ')):'')+'  ·  '+rt);
+    d.style.gridColumn='1 / -1'; grid.appendChild(d);
   }
   wrap.appendChild(grid);
   if(body.url){

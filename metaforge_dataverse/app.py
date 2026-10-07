@@ -197,7 +197,8 @@ async def import_dataset(
     server: str | None = Form(None, description="override Dataverse base URL (default: config)"),
     description: str | None = Form(None, description="override the dataset Description"),
     dry_run: bool = Form(False, description="validate only; do not create/update"),
-    publish: bool = Form(False, description="publish after create/update (default false -> leaves a DRAFT)"),
+    publish: bool = Form(False, description="publish after create/update (default false -> leaves a DRAFT). Only honored when the MAIN AUTHOR's role permits publishing; otherwise the dataset stays a DRAFT and reviewRequired is returned"),
+    submit_for_review: bool = Form(False, description="submit the created/updated draft for review (Submit for Review -> notifies the PI). Use when the main author cannot publish directly"),
     license: str | None = Form(None, description="license name to apply, e.g. 'CC BY 4.0' (default: server default)"),
     force_update: bool = Form(False, description="update the existing dataset when one with the same title+owner exists (default false -> return 409 instead)"),
     refresh_schema: bool = Form(False, description="bypass the cached collection schema"),
@@ -245,6 +246,7 @@ async def import_dataset(
             description=description, dry_run=dry_run, publish=publish,
             license_name=license, force_update=force_update,
             refresh_schema=refresh_schema, sheet_map=sheet_map,
+            submit_for_review=submit_for_review,
         )
     except ImportProblem as e:
         return JSONResponse(status_code=422, content={

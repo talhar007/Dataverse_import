@@ -1,6 +1,7 @@
 """Thin Dataverse Native-API client with a per-collection schema cache."""
 from __future__ import annotations
 
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -35,7 +36,24 @@ _SCHEMA_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
 _LICENSE_CACHE: dict[str, tuple[float, list]] = {}
 # The dataverse tree, keyed by (base_url, root).
 _DVLIST_CACHE: dict[tuple[str, str], tuple[float, list]] = {}
+# Role definitions (permissions) keyed by (base_url, roleId); rarely change.
+_ROLE_CACHE: dict[tuple[str, int], dict] = {}
+# Explicit-group member lists keyed by (base_url, ownerId); rarely change.
+_GROUPS_CACHE: dict[tuple[str, str], list] = {}
 _CACHE_LOCK = threading.Lock()
+
+
+def _clean_validation_message(msg: str) -> str:
+    """Strip the Java/everit schema noise out of a validateDatasetJson failure
+    message so the UI shows just the human parts (e.g. 'required key [...] not
+    found')."""
+    msg = re.sub(r"org\.everit\.json\.schema\.\w+:\s*", " | ", msg)
+    msg = re.sub(r"#/\S*?:\s*", "", msg)   # JSON-pointer path prefixes
+    msg = re.sub(r"#:\s*", "", msg)
+    msg = re.sub(r"\s*\|\s*(\|\s*)+", " | ", msg)
+    msg = re.sub(r":\s*\|", ":", msg)
+    msg = re.sub(r"\s{2,}", " ", msg).strip().strip("|").strip()
+    return msg
 
 
 def _parse_blocks(data: list[dict]) -> dict[str, dict]:
@@ -56,12 +74,14 @@ def _parse_blocks(data: list[dict]) -> dict[str, dict]:
                     "multiple": fdef.get("multiple", False),
                     "parent": parent,
                     "cv": cvv,
+                    "title": fdef.get("title"),   # human display label (matched, not the typeName)
                 }
                 if fdef.get("childFields"):
                     walk(fdef["childFields"], tn)
 
         walk(block.get("fields", {}))
-        schema[block.get("displayName") or block["name"]] = {"blockName": block["name"], "fields": fields}
+        dn = block.get("displayName") or block["name"]
+        schema[dn] = {"blockName": block["name"], "displayName": dn, "fields": fields}
     return schema
 
 
@@ -141,9 +161,15 @@ class DataverseClient:
             body = r.json()
         except ValueError:
             body = {"status": "ERROR", "message": r.text[:500]}
-        ok = r.ok and body.get("status") == "OK"
         msg = (body.get("data") or {}).get("message") or body.get("message") or r.text[:500]
-        return ValidationResult(ok=ok, message=msg, raw=body)
+        # NOTE: validateDatasetJson returns HTTP 200 + status "OK" even when the
+        # JSON is INVALID, carrying the real verdict in the message. So a status of
+        # OK is NOT enough -- treat an explicit failure message as invalid.
+        status_ok = r.ok and body.get("status") == "OK"
+        failed = ("failed validation" in msg.lower()) or ("not valid" in msg.lower())
+        if failed:
+            msg = _clean_validation_message(msg)
+        return ValidationResult(ok=status_ok and not failed, message=msg, raw=body)
 
     # ---- create ---------------------------------------------------------
     def create_dataset(self, parent: str, payload: dict) -> dict:
@@ -304,6 +330,27 @@ class DataverseClient:
         except DataverseError:
             return False
 
+    def _add_dataset_dvids(self, assignee: str) -> set:
+        """Dataverse ids where `assignee` (e.g. '@testtalha') holds a DIRECT role
+        that grants AddDataset. Uses the admin assignees endpoint (superuser), so
+        it reports the user's REAL scope even when they are a superuser (whose
+        /userPermissions would claim canAddDataset everywhere)."""
+        who = assignee if assignee.startswith("@") else "@" + assignee
+        r = self._send("GET", f"{self.base_url}/api/admin/assignments/assignees/{who}")
+        out = set()
+        if not r.ok:
+            return out
+        for a in r.json().get("data", []):
+            if a.get("definitionPointType") != "Dataverse":
+                continue
+            rid = a.get("roleId")
+            if rid and "AddDataset" in set(self.get_role(rid).get("permissions", [])):
+                try:
+                    out.add(int(a.get("definitionPointId")))
+                except (TypeError, ValueError):
+                    pass
+        return out
+
     def list_dataverses(self, root: str | None = None, max_nodes: int = 800,
                         editable_only: bool = False, refresh: bool = False) -> list[dict]:
         """Walk the dataverse tree and return one node per collection, each
@@ -363,13 +410,55 @@ class DataverseClient:
                         q.append((child, dvid))
 
         if editable_only and out:
-            # canAddDataset for every node, in parallel (one call each).
-            from concurrent.futures import ThreadPoolExecutor
-            ids = [n["id"] for n in out]
-            with ThreadPoolExecutor(max_workers=10) as ex:
-                ed = dict(zip(ids, ex.map(self._can_add_safe, ids)))
-            # Keep editable nodes + all ancestors (so the tree stays connected).
             by_id = {n["id"]: n for n in out}
+            try:
+                me = self.whoami()
+            except DataverseError:
+                me = {}
+            if me.get("superuser"):
+                # A superuser's /userPermissions reports canAddDataset EVERYWHERE,
+                # which would list collections they don't actually manage. Compute
+                # the real scope from their role assignments instead: assignments
+                # inherit DOWN, so a node is editable if it OR any ancestor grants
+                # the user AddDataset.
+                add_dvids = self._add_dataset_dvids(me.get("identifier", ""))
+                # A grant ABOVE the walked root (an ancestor of a top node) makes
+                # the whole listed tree editable.
+                inherited = False
+                for n in out:
+                    if n.get("parentId") in by_id:
+                        continue  # only inspect top nodes
+                    cur = self.get_dataverse(n["id"])
+                    owner = cur.get("ownerId") if cur else None
+                    guard = set()
+                    while owner and owner not in guard:
+                        guard.add(owner)
+                        if owner in add_dvids:
+                            inherited = True; break
+                        nxt = self.get_dataverse(owner)
+                        owner = nxt.get("ownerId") if nxt else None
+                    if inherited:
+                        break
+
+                def _canadd(n):
+                    if inherited:
+                        return True
+                    cur = n
+                    while cur is not None:
+                        if cur["id"] in add_dvids:
+                            return True
+                        cur = by_id.get(cur.get("parentId"))
+                    return False
+                ed = {n["id"]: _canadd(n) for n in out}
+            else:
+                # Non-superuser: /userPermissions is accurate (it also reflects
+                # group-based grants), one call per node in parallel.
+                from concurrent.futures import ThreadPoolExecutor
+                ids = [n["id"] for n in out]
+                with ThreadPoolExecutor(max_workers=10) as ex:
+                    ed = dict(zip(ids, ex.map(self._can_add_safe, ids)))
+
+            # Keep editable nodes + all ancestors (so the tree stays connected).
             keep = set()
             for n in out:
                 if ed.get(n["id"]):
@@ -469,3 +558,169 @@ class DataverseClient:
         if not (r.ok and body.get("status") == "OK"):
             raise DataverseError(body.get("message", "update failed"), r.status_code, body)
         return body["data"]
+
+    def submit_for_review(self, dataset_id) -> dict:
+        """Submit a draft for review ('Submit for Review'): locks the dataset
+        'In Review' and notifies the collection's curators (the users who can
+        publish -- e.g. the PI). Used when the main author's role does not permit
+        publishing directly."""
+        url = f"{self.base_url}/api/datasets/{dataset_id}/submitForReview"
+        r = self._send("POST", url, timeout=max(self.timeout, 120))
+        try:
+            body = r.json()
+        except ValueError:
+            raise DataverseError(f"submit for review failed: HTTP {r.status_code} {r.text[:300]}",
+                                 r.status_code)
+        if not (r.ok and body.get("status") == "OK"):
+            raise DataverseError(body.get("message", "submit for review failed"), r.status_code, body)
+        return body.get("data", {})
+
+    # ---- role / permission resolution (author publish gate) ------------
+    # These read the target collection's role model to decide whether the MAIN
+    # AUTHOR (not the submitter) may publish. Reading another user's role, group
+    # membership and role definitions requires a superuser token (see the
+    # 'testtalha-superuser' note); without it these calls 401/403 and the gate
+    # degrades to "cannot verify -> route to PI review".
+    def get_role(self, role_id) -> dict:
+        """A role definition (alias, name, permissions), cached per server."""
+        key = (self.base_url, int(role_id))
+        with _CACHE_LOCK:
+            hit = _ROLE_CACHE.get(key)
+        if hit is not None:
+            return hit
+        r = self._send("GET", f"{self.base_url}/api/roles/{role_id}")
+        data = r.json().get("data", {}) if r.ok else {}
+        with _CACHE_LOCK:
+            _ROLE_CACHE[key] = data
+        return data
+
+    def get_dataverse(self, ident) -> dict | None:
+        """The dataverse object (id, alias, name, ownerId). None if unreadable."""
+        return self._get_dataverse(ident)
+
+    def get_dataverse_assignments(self, ident) -> list[dict]:
+        """DIRECT role assignments at this collection (not inherited). Each entry
+        has assignee (@user or &group), roleId, _roleAlias, definitionPointName."""
+        r = self._send("GET", f"{self.base_url}/api/dataverses/{ident}/assignments")
+        if not r.ok:
+            raise DataverseError(f"could not read assignments for {ident!r}: "
+                                 f"HTTP {r.status_code} {r.text[:200]}", r.status_code)
+        return r.json().get("data", [])
+
+    def get_dataverse_roles(self, ident) -> list[dict]:
+        """Roles assignable in this collection (own + inherited definitions),
+        each with alias/name/permissions. Empty list if unreadable."""
+        r = self._send("GET", f"{self.base_url}/api/dataverses/{ident}/roles")
+        return r.json().get("data", []) if r.ok else []
+
+    def get_dataverse_groups(self, owner_ident) -> list[dict]:
+        """Explicit groups OWNED by this collection, with member lists
+        (containedRoleAssignees). Cached per (server, owner)."""
+        key = (self.base_url, str(owner_ident))
+        with _CACHE_LOCK:
+            hit = _GROUPS_CACHE.get(key)
+        if hit is not None:
+            return hit
+        r = self._send("GET", f"{self.base_url}/api/dataverses/{owner_ident}/groups")
+        groups = r.json().get("data", []) if r.ok else []
+        with _CACHE_LOCK:
+            _GROUPS_CACHE[key] = groups
+        return groups
+
+    def _group_members(self, identifier: str) -> list[str]:
+        """Members (@user ids) of an explicit group by its identifier, e.g.
+        '&explicit/72-a00_phd' (owner dataverse 72, group alias a00_phd)."""
+        try:
+            owner = identifier.split("/", 1)[1].split("-", 1)[0]
+        except (IndexError, ValueError):
+            return []
+        for g in self.get_dataverse_groups(owner):
+            if g.get("identifier") == identifier:
+                return g.get("containedRoleAssignees") or []
+        return []
+
+    def dataverse_ancestors(self, ident, max_depth: int = 12) -> list[dict]:
+        """The collection and its ancestors, nearest first, walking ownerId."""
+        chain, seen = [], set()
+        cur = self.get_dataverse(ident)
+        while cur and cur.get("id") not in seen and len(chain) < max_depth:
+            seen.add(cur.get("id"))
+            chain.append(cur)
+            owner = cur.get("ownerId")
+            if not owner:
+                break
+            cur = self.get_dataverse(owner)
+        return chain
+
+    def resolve_publish_capability(self, target, username: str) -> dict:
+        """What the user `username` may do with datasets in `target`, from the
+        collection's role model (their DIRECT assignments plus assignments to
+        explicit groups they belong to, across `target` and its ancestors).
+
+        Returns {assignee, roles:[...], permissions:[...], canAdd, canPublish,
+        publishers:[@ids], verified}. `verified` is False when a needed read
+        failed (e.g. non-superuser token) so the caller can fail safe.
+        """
+        who = "@" + str(username).lstrip("@")
+        verified = True
+        try:
+            chain = self.dataverse_ancestors(target)
+        except DataverseError:
+            chain, verified = [], False
+
+        assignments: list[dict] = []
+        for dv in chain:
+            try:
+                assignments.extend(self.get_dataverse_assignments(dv.get("id")))
+            except DataverseError:
+                verified = False
+
+        # Which assignees represent this author: themselves + groups they're in.
+        group_members: dict[str, set] = {}
+        for a in assignments:
+            asg = a.get("assignee", "")
+            if asg.startswith("&") and asg not in group_members:
+                try:
+                    group_members[asg] = set(self._group_members(asg))
+                except DataverseError:
+                    group_members[asg] = set()
+                    verified = False
+        mine = {who} | {g for g, mem in group_members.items() if who in mem}
+
+        def _pi_like(a: dict) -> bool:
+            # A project/CRC 'PI' role, as opposed to a generic admin/curator: the
+            # role alias or name carries 'pi' as its own token (crc1218_pi,
+            # test_workgroup_pi, a00_pi, ...). Used to name the review recipients.
+            for s in (a.get("_roleAlias"), a.get("roleName")):
+                if s and "pi" in re.split(r"[^a-z]+", str(s).lower()):
+                    return True
+            return False
+
+        perms: set[str] = set()
+        roles: list[dict] = []
+        publishers: set[str] = set()      # everyone who can publish here (fallback)
+        reviewers: set[str] = set()       # PI-role holders (preferred recipients)
+        for a in assignments:
+            rid = a.get("roleId")
+            rperms = set(self.get_role(rid).get("permissions", [])) if rid else set()
+            if a.get("assignee") in mine:
+                perms |= rperms
+                roles.append({"role": a.get("_roleAlias"), "roleName": a.get("roleName"),
+                              "at": a.get("definitionPointName"), "via": a.get("assignee")})
+            if "PublishDataset" in rperms:      # who could publish here
+                asg = a.get("assignee", "")
+                who_set = group_members.get(asg, set()) if asg.startswith("&") else ({asg} if asg else set())
+                publishers |= who_set
+                if _pi_like(a):
+                    reviewers |= who_set
+
+        return {
+            "assignee": who,
+            "roles": roles,
+            "permissions": sorted(perms),
+            "canAdd": "AddDataset" in perms,
+            "canPublish": "PublishDataset" in perms,
+            "publishers": sorted(publishers),
+            "reviewers": sorted(reviewers),
+            "verified": verified,
+        }

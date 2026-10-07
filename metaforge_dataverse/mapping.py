@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .excel import ParsedWorkbook, match_template, resolve_template
+from .excel import ParsedWorkbook, match_template
 
 
 @dataclass
@@ -83,20 +83,62 @@ def _prim_field(tn, values, multiple):
             "value": vv if multiple else vv[0]}
 
 
-def build_custom_block(template, entries, field_dict, schema, corrections, notes):
-    sblock = schema[template]
+# ------------------------------------------------------- target-block matching
+# We match a workbook sheet to a metadata block on the TARGET dataverse by the
+# human field LABELS, not by block display-name or the workbook's declared
+# typeNames. This makes the same workbook import into any dataverse whose blocks
+# expose the same labels, even if the block name/version differs (e.g.
+# crc1607_sample_summary vs crc1607_sample_summary_v1 in different sub-dataverses).
+def _block_titles(sblock: dict) -> dict:
+    """{field display-title -> typeName} for a target-schema block (incl. children)."""
+    return {info["title"]: tn for tn, info in sblock["fields"].items() if info.get("title")}
+
+
+def _sheet_labels(parsed, sheet: str, entries: list) -> set:
+    """The column labels a sheet carries: its Field-Dictionary template's labels
+    plus any label actually present in the data rows."""
+    template = match_template(sheet, parsed.field_dict)
+    labels = set(parsed.field_dict.get(template, {}).keys()) if template else set()
+    for e in entries:
+        labels |= set(e.keys())
+    return labels
+
+
+def match_block(sheet_labels: set, schema: dict) -> tuple:
+    """Pick the target block whose field titles best cover the sheet's labels.
+    Returns (displayName, overlap_count); (None, 0) if nothing overlaps."""
+    best, best_ov = None, 0
+    for dn, sblock in schema.items():
+        if sblock.get("blockName") == "citation":
+            continue
+        ov = len(sheet_labels & set(_block_titles(sblock).keys()))
+        if ov > best_ov:
+            best, best_ov = dn, ov
+    return best, best_ov
+
+
+def is_skipped(sheet: str, sheet_map: dict | None) -> bool:
+    """True when the user explicitly mapped this sheet to nothing ('don't import')."""
+    return bool(sheet_map is not None and sheet in sheet_map
+                and not (sheet_map.get(sheet) or "").strip())
+
+
+def build_custom_block(sblock, entries, corrections, notes):
+    """Build one metadata block for the TARGET schema block `sblock`, mapping each
+    workbook column by its display LABEL to the block field of the same title (so
+    the target dataverse's own typeNames/version are used, not the workbook's)."""
     sfields = sblock["fields"]
-    label_to_type = {lbl: m["typeName"] for lbl, m in field_dict[template].items()}
+    title_to_type = _block_titles(sblock)
 
     row_objs = []
     for row in entries:
         d = {}
         for label, value in row.items():
-            tn = label_to_type.get(label)
+            tn = title_to_type.get(label)
             if tn:
                 d[tn] = value
             else:
-                notes.append(f"{template}: column {label!r} not in field dictionary; skipped")
+                notes.append(f"{sblock['displayName']}: column {label!r} has no matching field in this block; skipped")
         row_objs.append(d)
 
     fields_out = []
@@ -150,7 +192,7 @@ def build_custom_block(template, entries, field_dict, schema, corrections, notes
         else:
             fields_out.append(_prim_field(tn, vals, mult))
 
-    return sblock["blockName"], {"fields": fields_out, "displayName": template}
+    return sblock["blockName"], {"fields": fields_out, "displayName": sblock["displayName"]}
 
 
 def build_citation(info):
@@ -222,9 +264,14 @@ def find_missing_required(parsed: ParsedWorkbook,
         errors.append("TemplateInfo: Subject is required")
 
     # --- custom blocks: the Field Dictionary 'Required' column, per data row ---
+    # The workbook's own Field Dictionary defines which columns are required; we
+    # find that template by sheet name (the target block it maps to is a separate
+    # concern, handled in build_payload).
     fd = parsed.field_dict
     for sheet, entries in parsed.meta_sheets.items():
-        template = resolve_template(sheet, fd, sheet_map)
+        if is_skipped(sheet, sheet_map):
+            continue
+        template = match_template(sheet, fd)
         if not template or template not in fd:
             continue
         required = [lbl for lbl, m in fd[template].items() if m.get("required")]
@@ -269,20 +316,29 @@ def build_payload(parsed: ParsedWorkbook, schema: dict, description_override: st
     # (required-field enforcement lives in find_missing_required, run before build)
 
     for sheet, entries in parsed.meta_sheets.items():
-        template = resolve_template(sheet, parsed.field_dict, sheet_map)
-        if not template:
-            warnings_.append(f"Sheet {sheet!r} was not matched to a metadata block; skipped")
-            continue
-        if template not in parsed.field_dict:
-            warnings_.append(f"Sheet {sheet!r} mapped to {template!r}, which the workbook's "
-                             f"Field Dictionary does not describe; skipped")
-            continue
-        if template not in schema:
-            warnings_.append(f"Block {template!r} is not present on the target collection; skipped")
+        if is_skipped(sheet, sheet_map):
             continue
         if not entries:
             continue
-        bname, bobj = build_custom_block(template, entries, parsed.field_dict, schema, corrections, notes)
+        # Resolve the TARGET block: an explicit override (sheet -> block displayName)
+        # wins; otherwise pick the block whose field titles best cover this sheet's
+        # labels. This is deliberately independent of block name/version, so a
+        # workbook built for one dataverse still imports into another whose blocks
+        # carry the same labels under a different name.
+        if sheet_map is not None and sheet in sheet_map:
+            target_dn = (sheet_map[sheet] or "").strip() or None
+        else:
+            target_dn, ov = match_block(_sheet_labels(parsed, sheet, entries), schema)
+            if not ov:
+                target_dn = None
+        if not target_dn:
+            warnings_.append(f"Sheet {sheet!r} could not be matched to a metadata block "
+                             f"on this collection; skipped")
+            continue
+        if target_dn not in schema:
+            warnings_.append(f"Block {target_dn!r} is not present on the target collection; skipped")
+            continue
+        bname, bobj = build_custom_block(schema[target_dn], entries, corrections, notes)
         blocks[bname] = bobj
 
     version: dict[str, Any] = {"metadataBlocks": blocks}
