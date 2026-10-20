@@ -505,7 +505,19 @@ async function api(path, opts={}){
 }
 // Any 5xx (or a network failure, status 0) means the server is down/erroring.
 const isServerDown = st => st===0 || st>=500;
-const serverDownMsg = st => 'Error '+(st||500)+': Server is down. Please try again later.';
+const serverDownMsg = st => st>=500 ? ('Server error (HTTP '+st+'). Please try again.')
+  : 'Could not reach the server. Check your connection and try again.';
+
+// Re-read a selected File's current bytes at request time. A File chosen earlier
+// goes stale if the user edits or moves it on disk; reading it then throws, which
+// otherwise surfaced as a misleading "server error". We read fresh (picking up
+// on-disk edits where the browser allows) and let the caller handle a stale file.
+async function fileBlob(entry){
+  const buf = await entry.file.arrayBuffer();
+  return new Blob([buf]);
+}
+const STALE_FILE_MSG = 'This file could not be read — it may have changed or moved on disk '
+  + 'since you added it. Click “Replace file” to re-select it.';
 
 /* ---------- auth (OIDC single sign-on) ---------- */
 const AUTH = { loaded:false, authenticated:false, user:null, oidcEnabled:false, serviceToken:false };
@@ -664,8 +676,14 @@ function removeFile(id){ state.files=state.files.filter(f=>f.id!==id); renderFil
 
 async function runDryFor(entry){
   entry.status='validating'; renderFilesList();
+  let blob;
+  try { blob = await fileBlob(entry); }
+  catch(e){
+    entry.dryStatus=0; entry.dryBody={status:'invalid', errors:[STALE_FILE_MSG]};
+    entry.status='invalid'; entry._open=true; renderFilesList(); return;
+  }
   const fd=new FormData();
-  fd.append('file',entry.file); fd.append('parent',state.parent); fd.append('dry_run','true');
+  fd.append('file',blob,entry.name); fd.append('parent',state.parent); fd.append('dry_run','true');
   // Read the collection's blocks fresh so newly added/removed blocks show up now.
   fd.append('refresh_schema','true');
   if(Object.keys(entry.mapping).length) fd.append('mapping', JSON.stringify(entry.mapping));
@@ -999,8 +1017,14 @@ async function submitAll(){
 }
 async function submitFile(entry, force){
   entry.submitStatus='submitting'; renderResults();
+  let blob;
+  try { blob = await fileBlob(entry); }
+  catch(e){
+    entry.resultHttp=0; entry.resultBody={status:'invalid', errors:[STALE_FILE_MSG+' (Go Back to re-select it.)']};
+    entry.submitStatus='error'; renderResults(); return;
+  }
   const fd=new FormData();
-  fd.append('file',entry.file); fd.append('parent',state.parent);
+  fd.append('file',blob,entry.name); fd.append('parent',state.parent);
   // When this file is set to Publish but its main author can't publish, send it
   // for PI review instead of publishing (the backend also guards this).
   const review = entry.publish && entry._canPub===false;
