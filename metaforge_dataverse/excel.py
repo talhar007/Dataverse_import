@@ -91,7 +91,10 @@ def read_template_info(wb) -> dict[str, Any]:
 
         if "account information" in key:      # "Account Information" or "Depositor Account Information"
             section, cur_author, cur_contact = "account", None, None
-        elif key == "author":
+        elif key in ("author", "main author", "co-author", "co author", "coauthor"):
+            # MetaForge uses "Author"; the General-research format uses "Main Author"
+            # (the first/owner) and "Co-Author" (each additional author). All start a
+            # fresh author entry under the author section.
             section, cur_author, cur_contact = "author", None, None
         elif key == "point of contact":
             section, cur_contact, cur_author = "contact", None, None
@@ -149,15 +152,22 @@ def read_template_info(wb) -> dict[str, Any]:
 
 
 def read_field_dictionary(wb) -> dict[str, dict[str, dict]]:
-    """template -> {display label -> {typeName, type, required}}."""
+    """template/sheet -> {display label -> {typeName, type, required}}.
+
+    MetaForge keys the dictionary by a "Template" column; the General-research
+    format keys it by "Sheet" (the metadata sheet's own name). Either works -- the
+    key becomes the template name the matcher resolves sheets against.
+    """
     ws = wb["Field Dictionary"]
     rows = list(ws.iter_rows(values_only=True))
     header = [str(h).strip() if h else "" for h in rows[0]]
-    needed = ("Template", "Field Name (ID)", "Display Label", "Type", "Required")
+    key_col = "Template" if "Template" in header else ("Sheet" if "Sheet" in header else "Template")
+    needed = (key_col, "Field Name (ID)", "Display Label", "Type", "Required")
     missing = [c for c in needed if c not in header]
     if missing:
         raise ValueError(f"Field Dictionary is missing columns: {missing}")
     idx = {n: header.index(n) for n in needed}
+    idx["Template"] = idx[key_col]   # downstream reads idx["Template"]
     out: dict[str, dict[str, dict]] = {}
     for r in rows[1:]:
         if not r or r[idx["Template"]] is None:
@@ -172,14 +182,18 @@ def read_field_dictionary(wb) -> dict[str, dict[str, dict]]:
     return out
 
 
-def read_metadata_sheets(wb) -> dict[str, list[dict]]:
-    """Every 'Metadata_*' sheet -> list of dict rows keyed by display label.
+def read_metadata_sheets(wb, templates: set | None = None) -> dict[str, list[dict]]:
+    """Each metadata sheet -> list of dict rows keyed by display label.
 
-    Empty cells are skipped, so only fields actually filled in are emitted.
+    A sheet counts as metadata if its name starts with 'Metadata_' (MetaForge) OR
+    is one of `templates` -- the sheet names the Field Dictionary declares (the
+    General-research format, whose sheets are section-named like 'Summary of
+    Samples'). Empty cells are skipped, so only filled-in fields are emitted.
     """
+    templates = templates or set()
     out: dict[str, list[dict]] = {}
     for ws in wb.worksheets:
-        if not ws.title.startswith("Metadata_"):
+        if not (ws.title.startswith("Metadata_") or ws.title in templates):
             continue
         rows = list(ws.iter_rows(values_only=True))
         if not rows:
@@ -221,10 +235,13 @@ def parse_workbook(source) -> ParsedWorkbook:
     from .ontology import OntologyIndex
     wb = _open(source)
     try:
+        fd = read_field_dictionary(wb)
         return ParsedWorkbook(
             info=read_template_info(wb),
-            field_dict=read_field_dictionary(wb),
-            meta_sheets=read_metadata_sheets(wb),
+            field_dict=fd,
+            # section-named sheets (General-research) are read by the Field
+            # Dictionary's sheet names; Metadata_* sheets (MetaForge) still work.
+            meta_sheets=read_metadata_sheets(wb, set(fd.keys())),
             sheet_names=list(wb.sheetnames),
             # typed term -> ontology IRI, from a hidden 'Ontology Terms' sheet if the
             # workbook carries one (empty otherwise; fully backward-compatible).
