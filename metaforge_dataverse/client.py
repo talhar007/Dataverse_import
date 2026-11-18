@@ -152,6 +152,33 @@ class DataverseClient:
             _LICENSE_CACHE[self.base_url] = (now, lics)
         return lics
 
+    # ---- external controlled vocabulary (clickable ontology links) ------
+    def get_cvoc_config(self) -> dict:
+        """The server's External Controlled Vocabulary (:CVocConf) config, as
+        {field-name: entry}. Each entry (e.g. for 'crc1607_ssv2_organism') names the
+        `term-uri-field` child that stores the ontology IRI Dataverse renders as a
+        clickable link. Empty dict if unset/unreadable. Returns {} on any failure so
+        callers can treat 'no CVoc' as 'plain value'."""
+        try:
+            r = self._send("GET", f"{self.base_url}/api/admin/settings")
+            if not r.ok:
+                return {}
+            conf = (r.json().get("data") or {}).get(":CVocConf")
+        except (DataverseError, ValueError):
+            return {}
+        if isinstance(conf, str):
+            import json as _json
+            try:
+                conf = _json.loads(conf)
+            except ValueError:
+                return {}
+        out: dict = {}
+        for entry in (conf or []):
+            fn = entry.get("field-name")
+            if fn:
+                out[fn] = entry
+        return out
+
     # ---- validate (dry run) --------------------------------------------
     def validate(self, parent: str, payload: dict) -> ValidationResult:
         import json

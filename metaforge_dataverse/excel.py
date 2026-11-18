@@ -23,6 +23,7 @@ class ParsedWorkbook:
     field_dict: dict[str, dict[str, dict]]     # template -> {display label -> {typeName,type,required}}
     meta_sheets: dict[str, list[dict]]         # sheet title -> [ {display label: value}, ... ]
     sheet_names: list[str] = field(default_factory=list)
+    ontology: Any = None                       # OntologyIndex: typed term -> ontology IRI (if sheet present)
 
 
 def _open(source) -> "openpyxl.Workbook":
@@ -217,6 +218,7 @@ def resolve_template(sheet_title: str, field_dict: dict,
 
 def parse_workbook(source) -> ParsedWorkbook:
     """Parse an Excel .xlsx from a path, bytes, or file-like object."""
+    from .ontology import OntologyIndex
     wb = _open(source)
     try:
         return ParsedWorkbook(
@@ -224,6 +226,9 @@ def parse_workbook(source) -> ParsedWorkbook:
             field_dict=read_field_dictionary(wb),
             meta_sheets=read_metadata_sheets(wb),
             sheet_names=list(wb.sheetnames),
+            # typed term -> ontology IRI, from a hidden 'Ontology Terms' sheet if the
+            # workbook carries one (empty otherwise; fully backward-compatible).
+            ontology=OntologyIndex.from_workbook(wb),
         )
     finally:
         wb.close()
