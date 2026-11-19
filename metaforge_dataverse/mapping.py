@@ -291,8 +291,66 @@ def find_missing_required(parsed: ParsedWorkbook,
     return errors
 
 
+def _apply_ontology_links(blocks: dict, schema: dict, ontology, cvoc: dict | None, notes: list) -> None:
+    """Turn CVoc-configured fields (e.g. the v2 organism) into clickable ontology
+    links: for each field the server's :CVocConf marks as external-vocabulary,
+    resolve its term to an IRI and store the IRI in the field's term-uri child, so
+    Dataverse renders it as a link to the ontology term.
+
+    Data-driven off the live schema + :CVocConf and fully additive -- a no-op when
+    either `cvoc` or the `ontology` index is empty, so existing imports (and any
+    field without a mapping) are untouched.
+    """
+    if not (cvoc and ontology):
+        return
+    for bname, block in blocks.items():
+        sblock = next((b for b in schema.values() if b.get("blockName") == bname), None)
+        if not sblock:
+            continue
+        sfields = sblock.get("fields", {})
+        for entry in cvoc.values():
+            uri_tn = entry.get("term-uri-field")
+            fn = entry.get("field-name")
+            if not uri_tn or uri_tn not in sfields:
+                continue
+            parent_tn = sfields[uri_tn].get("parent")
+            if parent_tn:
+                # Compound external vocab: the term-uri field is a child. Fill it on
+                # every compound entry whose term resolves to an IRI.
+                for f in block["fields"]:
+                    if f.get("typeName") != parent_tn or f.get("typeClass") != "compound":
+                        continue
+                    for comp in f.get("value", []):
+                        if uri_tn in comp:
+                            continue
+                        src = comp.get(fn) if fn in comp else next(
+                            (v for k, v in comp.items() if k != uri_tn), None)
+                        term = src.get("value") if isinstance(src, dict) else src
+                        rec = ontology.resolve(term) if term else None
+                        if rec and rec.get("iri"):
+                            comp[uri_tn] = {"typeName": uri_tn, "multiple": False,
+                                            "typeClass": "primitive", "value": rec["iri"]}
+                            notes.append(f"ontology link: {term!r} -> {rec['iri']}")
+            else:
+                # Primitive external vocab: the field itself stores the term IRI.
+                for f in block["fields"]:
+                    if f.get("typeName") != (fn or uri_tn):
+                        continue
+                    vals = f.get("value")
+                    seq = vals if isinstance(vals, list) else [vals]
+                    for i, v in enumerate(seq):
+                        rec = ontology.resolve(v) if v else None
+                        if rec and rec.get("iri"):
+                            notes.append(f"ontology link: {v!r} -> {rec['iri']}")
+                            if isinstance(vals, list):
+                                vals[i] = rec["iri"]
+                            else:
+                                f["value"] = rec["iri"]
+
+
 def build_payload(parsed: ParsedWorkbook, schema: dict, description_override: str | None = None,
-                  license: dict | None = None, sheet_map: dict[str, str] | None = None) -> BuildResult:
+                  license: dict | None = None, sheet_map: dict[str, str] | None = None,
+                  cvoc: dict | None = None) -> BuildResult:
     """Parsed workbook + live block schema -> Dataverse create-dataset payload.
 
     `license` (if given) is a {"name","uri"} dict set on the datasetVersion; a
@@ -340,6 +398,11 @@ def build_payload(parsed: ParsedWorkbook, schema: dict, description_override: st
             continue
         bname, bobj = build_custom_block(schema[target_dn], entries, corrections, notes)
         blocks[bname] = bobj
+
+    # Store ontology IRIs in CVoc term-uri fields so they render as clickable links
+    # (no-op unless the server's :CVocConf + the workbook's ontology index are both
+    # present).
+    _apply_ontology_links(blocks, schema, getattr(parsed, "ontology", None), cvoc, notes)
 
     version: dict[str, Any] = {"metadataBlocks": blocks}
     if license:

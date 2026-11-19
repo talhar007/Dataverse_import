@@ -446,9 +446,16 @@ def import_workbook(
     #     the caller explicitly asked for a license.
     license = _resolve_license(client, license_name) if (publish or submit_for_review or license_name) else None
 
-    # 3) build the payload
+    # 3) build the payload. The server's external-vocabulary (:CVocConf) config lets
+    #    the builder store ontology IRIs in CVoc term-uri fields (e.g. organism) so
+    #    they render as clickable links; read via the admin token (superuser), and a
+    #    no-op if unavailable.
+    try:
+        cvoc = role_reader.get_cvoc_config()
+    except DataverseError:
+        cvoc = {}
     build = mapping.build_payload(parsed, schema, description_override=description,
-                                  license=license, sheet_map=sheet_map)
+                                  license=license, sheet_map=sheet_map, cvoc=cvoc)
 
     # 4) fail loudly on controlled-vocabulary values with no server match
     if build.unresolved:
