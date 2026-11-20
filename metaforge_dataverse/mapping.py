@@ -104,16 +104,30 @@ def _sheet_labels(parsed, sheet: str, entries: list) -> set:
     return labels
 
 
+def _block_version(sblock: dict) -> int:
+    """Version number parsed from a block's name/displayName (…v2 -> 2), else 0."""
+    for s in (sblock.get("blockName"), sblock.get("displayName")):
+        m = re.search(r"v(\d+)\b", str(s or ""), re.I)
+        if m:
+            return int(m.group(1))
+    return 0
+
+
 def match_block(sheet_labels: set, schema: dict) -> tuple:
-    """Pick the target block whose field titles best cover the sheet's labels.
+    """Pick the target block whose field titles best cover the sheet's labels. On an
+    overlap tie, prefer the NEWER block version, so a 'Summary of Samples' sheet maps
+    to v2 rather than v1 when both exist.
     Returns (displayName, overlap_count); (None, 0) if nothing overlaps."""
-    best, best_ov = None, 0
+    best, best_ov, best_ver = None, 0, -1
     for dn, sblock in schema.items():
         if sblock.get("blockName") == "citation":
             continue
         ov = len(sheet_labels & set(_block_titles(sblock).keys()))
-        if ov > best_ov:
-            best, best_ov = dn, ov
+        if ov == 0:
+            continue
+        ver = _block_version(sblock)
+        if ov > best_ov or (ov == best_ov and ver > best_ver):
+            best, best_ov, best_ver = dn, ov, ver
     return best, best_ov
 
 
@@ -291,55 +305,98 @@ def find_missing_required(parsed: ParsedWorkbook,
     return errors
 
 
-def _apply_ontology_links(blocks: dict, schema: dict, ontology, cvoc: dict | None, notes: list) -> None:
-    """Turn CVoc-configured fields (e.g. the v2 organism) into clickable ontology
-    links: for each field the server's :CVocConf marks as external-vocabulary,
-    resolve its term to an IRI and store the IRI in the field's term-uri child, so
-    Dataverse renders it as a link to the ontology term.
+def _resolve_ontology(ontology, term, use_ols4: bool, _cache: dict) -> dict | None:
+    """Workbook ontology index first, then OLS4 (cached). None if unresolved."""
+    if term is None or str(term).strip() == "":
+        return None
+    rec = ontology.resolve(term) if ontology else None
+    if rec:
+        return rec
+    if use_ols4:
+        if term not in _cache:
+            from .ontology import ols4_resolve
+            _cache[term] = ols4_resolve(term)
+        return _cache[term]
+    return None
 
-    Data-driven off the live schema + :CVocConf and fully additive -- a no-op when
-    either `cvoc` or the `ontology` index is empty, so existing imports (and any
-    field without a mapping) are untouched.
+
+def _apply_ontology_links(blocks: dict, schema: dict, ontology, cvoc: dict | None, notes: list,
+                          *, use_ols4: bool = True) -> None:
+    """Turn CVoc-configured fields (e.g. the v2 organism) into clickable ontology
+    links. For each field the server's :CVocConf marks as external-vocabulary, the
+    `field-name` is a COMPOUND whose children are Term / Term URI / Vocabulary /
+    Vocabulary URI; build_custom_block maps the sheet column (title "Organism") onto
+    that parent as a flat value, so here we rebuild it as a proper compound: the
+    typed term in the Term child, its IRI in the term-uri child, and the ontology in
+    the Vocabulary child -- which is what makes Dataverse render the clickable link.
+
+    Data-driven off the live schema + :CVocConf and additive -- a no-op when `cvoc`
+    is empty (so MetaForge imports are untouched). Resolution falls back to OLS4
+    when the workbook has no Ontology Terms sheet.
     """
-    if not (cvoc and ontology):
+    if not cvoc:
         return
+    ols4_cache: dict = {}
     for bname, block in blocks.items():
         sblock = next((b for b in schema.values() if b.get("blockName") == bname), None)
         if not sblock:
             continue
         sfields = sblock.get("fields", {})
         for entry in cvoc.values():
-            uri_tn = entry.get("term-uri-field")
             fn = entry.get("field-name")
-            if not uri_tn or uri_tn not in sfields:
+            uri_tn = entry.get("term-uri-field")
+            if not fn or fn not in sfields:
                 continue
-            parent_tn = sfields[uri_tn].get("parent")
-            if parent_tn:
-                # Compound external vocab: the term-uri field is a child. Fill it on
-                # every compound entry whose term resolves to an IRI.
-                for f in block["fields"]:
-                    if f.get("typeName") != parent_tn or f.get("typeClass") != "compound":
+            finfo = sfields[fn]
+
+            if finfo.get("typeClass") == "compound":
+                # identify the compound's children by title
+                kids = {tn: inf for tn, inf in sfields.items() if inf.get("parent") == fn}
+                def _by_title(*titles):
+                    for t in titles:
+                        for tn, inf in kids.items():
+                            if (inf.get("title") or "").strip().lower() == t.lower():
+                                return tn
+                    return None
+                term_tn = _by_title("Term") or next((tn for tn in kids if tn != uri_tn), None)
+                vocab_tn = _by_title("Vocabulary", "Vocab")
+                vocaburi_tn = _by_title("Vocabulary URI", "VocabURI")
+                for i, f in enumerate(block["fields"]):
+                    if f.get("typeName") != fn:
                         continue
-                    for comp in f.get("value", []):
-                        if uri_tn in comp:
+                    raw = f.get("value")
+                    terms = raw if isinstance(raw, list) else [raw]
+                    comp_entries = []
+                    for term in terms:
+                        if term is None or str(term).strip() == "":
                             continue
-                        src = comp.get(fn) if fn in comp else next(
-                            (v for k, v in comp.items() if k != uri_tn), None)
-                        term = src.get("value") if isinstance(src, dict) else src
-                        rec = ontology.resolve(term) if term else None
-                        if rec and rec.get("iri"):
-                            comp[uri_tn] = {"typeName": uri_tn, "multiple": False,
-                                            "typeClass": "primitive", "value": rec["iri"]}
+                        rec = _resolve_ontology(ontology, term, use_ols4, ols4_cache) or {}
+                        ce = {}
+                        if term_tn:
+                            ce[term_tn] = _prim_field(term_tn, [rec.get("label") or term], False)
+                        if uri_tn and rec.get("iri"):
+                            ce[uri_tn] = _prim_field(uri_tn, [rec["iri"]], False)
+                        if vocab_tn and rec.get("ontology"):
+                            ce[vocab_tn] = _prim_field(vocab_tn, [rec["ontology"]], False)
+                        if vocaburi_tn and rec.get("iri") and rec.get("identifier"):
+                            base = rec["iri"][:-len(rec["identifier"])] if rec["iri"].endswith(rec["identifier"]) else ""
+                            if base:
+                                ce[vocaburi_tn] = _prim_field(vocaburi_tn, [base], False)
+                        if ce:
+                            comp_entries.append(ce)
+                        if rec.get("iri"):
                             notes.append(f"ontology link: {term!r} -> {rec['iri']}")
+                    block["fields"][i] = {"typeName": fn, "multiple": bool(finfo.get("multiple", True)),
+                                          "typeClass": "compound", "value": comp_entries}
             else:
                 # Primitive external vocab: the field itself stores the term IRI.
                 for f in block["fields"]:
-                    if f.get("typeName") != (fn or uri_tn):
+                    if f.get("typeName") != fn:
                         continue
                     vals = f.get("value")
                     seq = vals if isinstance(vals, list) else [vals]
                     for i, v in enumerate(seq):
-                        rec = ontology.resolve(v) if v else None
+                        rec = _resolve_ontology(ontology, v, use_ols4, ols4_cache)
                         if rec and rec.get("iri"):
                             notes.append(f"ontology link: {v!r} -> {rec['iri']}")
                             if isinstance(vals, list):
